@@ -1,139 +1,279 @@
-# Agente Calendario v2
+# 📅 Agente Calendario
 
-Asistente virtual por Telegram para un tecnico instalador de camaras y alarmas. Gestiona agenda en Google Calendar con interfaz hibrida (botones + lenguaje natural) y CRM local en SQLite.
+> **Bot de Telegram con IA** para gestión integral de servicios técnicos:
+> agenda, clientes, Google Calendar y cierre de trabajos — todo desde una conversación natural.
 
-## Requisitos previos
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-- Python >= 3.10
-- pip
+---
 
-## Instalacion
+## 📖 Descripción
+
+Agente Calendario es un bot de Telegram que funciona como asistente virtual
+inteligente para empresas de servicios técnicos (cámaras de seguridad, alarmas,
+porteros eléctricos, software, etc.).
+
+Permite gestionar la agenda mediante **botones interactivos** o **mensajes en
+lenguaje natural**, manteniendo sincronizados una **base de datos SQLite** y un
+**Google Calendar** compartido.
+
+### ✨ Características Principales
+
+- 🤖 **Lenguaje Natural**: Escribí "Agendar instalación mañana a las 10 para
+  Juan" y el bot entiende todo.
+- 📅 **Google Calendar**: Los eventos se crean con colores por tipo de servicio.
+- 🗄️ **CRM Liviano**: Base de datos SQLite con clientes y historial.
+- ✅ **Cierre de Servicios**: Registrá trabajo realizado, monto cobrado y fotos.
+- 🔐 **Roles**: Admin y Editor con permisos diferenciados.
+- ♻️ **Resiliencia**: Fallback de LLM (Groq → Gemini → OpenAI), reintentos automáticos.
+- 💻 **Recursos Mínimos**: Corre en un Ubuntu Server con hardware básico.
+
+---
+
+## 🚀 Inicio Rápido
+
+### Requisitos Previos
+
+- **Python 3.11** o superior
+- **pip** (gestor de paquetes de Python)
+- **Cuenta de Telegram** + Token de Bot (vía [@BotFather](https://t.me/BotFather))
+- **Cuenta de Google Cloud** con Calendar API habilitada + Service Account
+- **API Key de Groq** (gratuito en [console.groq.com](https://console.groq.com))
+
+### 1. Clonar el Repositorio
 
 ```bash
-# 1. Clonar el repositorio
-git clone <url-del-repo>
-cd agente-calendario-v2
+git clone https://github.com/tu-usuario/agente-calendario.git
+cd agente-calendario
+```
 
-# 2. Crear entorno virtual
+### 2. Crear Entorno Virtual
+
+```bash
 python3 -m venv .venv
-source .venv/bin/activate
-
-# 3. Instalar dependencias
-pip install -r requirements.txt
+source .venv/bin/activate  # Linux/macOS
+# .venv\Scripts\activate   # Windows
 ```
 
-## Configuracion
+### 3. Instalar Dependencias
 
 ```bash
-# 1. Copiar el archivo de ejemplo
+pip install -e ".[dev]"
+```
+
+> Si no tenés `pyproject.toml` aún, instalá manualmente:
+> ```bash
+> pip install python-telegram-bot pydantic pydantic-settings aiosqlite \
+>             groq google-api-python-client google-auth "thefuzz[speedup]" \
+>             python-dotenv pytest pytest-asyncio pytest-cov
+> ```
+
+### 4. Configurar Variables de Entorno
+
+```bash
 cp .env.example .env
-
-# 2. Editar con tus credenciales
-nano .env
 ```
 
-Variables obligatorias:
+Editá `.env` con tus datos reales:
 
-| Variable | Descripcion |
-|---|---|
-| `TELEGRAM_BOT_TOKEN` | Token del bot de Telegram (obtenido via @BotFather) |
-| `ADMIN_TELEGRAM_IDS` | IDs de Telegram de los admins (max 2, separados por coma) |
-| `GROQ_API_KEY` | API key de Groq (https://console.groq.com) |
-| `GOOGLE_CALENDAR_ID` | ID del calendario de Google |
-| `GOOGLE_SERVICE_ACCOUNT_FILE` | Ruta al JSON de la cuenta de servicio de Google |
+```env
+# Obligatorios
+TELEGRAM_BOT_TOKEN=tu_token_aqui
+ADMIN_TELEGRAM_IDS=[tu_telegram_id]
+GROQ_API_KEY=gsk_tu_api_key
+GOOGLE_CALENDAR_ID=tu_calendar_id@group.calendar.google.com
+GOOGLE_SERVICE_ACCOUNT_PATH=credentials/service_account.json
+```
 
-## Tests
+> **Tip:** Para obtener tu Telegram ID, usá [@userinfobot](https://t.me/userinfobot).
+
+### 5. Configurar Google Calendar
+
+1. Ir a [Google Cloud Console](https://console.cloud.google.com).
+2. Crear un proyecto o seleccionar uno existente.
+3. Habilitar **Google Calendar API**.
+4. Crear una **Service Account** y descargar la clave JSON.
+5. Guardar el archivo como `credentials/service_account.json`.
+6. En Google Calendar, compartir el calendario con el email de la Service Account
+   (con permisos de "Hacer cambios en eventos").
+
+### 6. Ejecutar el Bot
 
 ```bash
-# Activar el entorno virtual
-source .venv/bin/activate
-
-# Ejecutar todos los tests
-pytest -v
-
-# Ejecutar tests con cobertura
-pytest --cov=agents --cov=core --cov=config --cov-report=term-missing
-
-# Tests por modulo
-pytest tests/test_config_and_core.py -v        # Config + Core
-pytest tests/test_db_manager/ -v               # CRM (SQLite)
-pytest tests/test_groq_parser/ -v              # Motor NLU (Groq)
-pytest tests/test_calendar_sync/ -v            # Google Calendar
-pytest tests/test_work_schedule.py -v          # Motor de horario laboral
-pytest tests/test_orchestrator.py -v           # Orquestador central
-pytest tests/test_telegram_listener/ -v        # Bot Telegram (filtros, teclados, handler)
-
-# Generar reporte de cobertura en HTML
-pytest --cov=agents --cov=core --cov=config --cov-report=html
-# Abrir htmlcov/index.html en el navegador
+python -m src.main
 ```
 
-Cobertura minima requerida: **80%** (configurado en `pyproject.toml`).
+Deberías ver:
+```
+[2026-03-01 12:00:00] INFO  src.main  │ Configuración validada correctamente
+[2026-03-01 12:00:00] INFO  src.main  │ Base de datos inicializada
+[2026-03-01 12:00:00] INFO  src.main  │ Bot iniciado. Esperando mensajes...
+```
 
-## Estructura del proyecto
+### 7. Probar el Bot
+
+1. Abrir Telegram y buscar tu bot.
+2. Enviar `/start` — deberías ver el menú de botones.
+3. Probar: "Agendar instalación de cámaras para Juan Pérez mañana a las 10,
+   Balcarce 132, tel 351-1234567".
+
+---
+
+## 🧪 Tests
+
+### Ejecutar todos los tests
+
+```bash
+pytest
+```
+
+### Ejecutar con cobertura
+
+```bash
+pytest --cov=src --cov-report=term-missing
+```
+
+### Ejecutar solo tests unitarios
+
+```bash
+pytest tests/unit/
+```
+
+### Ejecutar solo tests de integración
+
+```bash
+pytest tests/integration/
+```
+
+### Ejecutar un test específico
+
+```bash
+pytest tests/unit/test_config.py -v
+```
+
+---
+
+## 📁 Estructura del Proyecto
 
 ```
-agente-calendario-v2/
-├── agents/                     # Modulos de negocio
-│   ├── db_manager/             # CRM SQLite (CRUD + fuzzy search)
-│   ├── groq_parser/            # Motor NLU via Groq API
-│   ├── calendar_sync/          # Google Calendar (CRUD + busquedas + colores)
-│   └── telegram_listener/      # Bot Telegram (filtros, teclados, handler)
-├── config/
-│   ├── settings.py             # Configuracion (pydantic-settings)
-│   └── constants.py            # Constantes del dominio
-├── core/
-│   ├── orchestrator.py         # Orquestador central
-│   ├── work_schedule.py        # Motor de horario laboral
-│   ├── exceptions.py           # Excepciones personalizadas
-│   └── logger.py               # Logging estructurado (structlog)
-├── tests/                      # Suite de tests (pytest + pytest-asyncio)
+agente-calendario/
+├── .env                        # Variables de entorno (no versionado)
+├── .env.example                # Plantilla de variables
+├── credentials/                # Service Account de Google (no versionado)
+│   └── service_account.json
+├── src/                        # Código fuente
+│   ├── main.py                 # Entry point
+│   ├── config.py               # Configuración centralizada (Pydantic)
+│   ├── core/                   # Logging, excepciones
+│   ├── bot/                    # Telegram handlers y menús
+│   ├── llm/                    # Parser LLM (Groq / Gemini)
+│   ├── calendar_api/           # Google Calendar wrapper
+│   ├── db/                     # Modelos, repositorio, caché
+│   └── orchestrator/           # Lógica de negocio central
+├── tests/                      # Tests unitarios y de integración
+│   ├── unit/
+│   └── integration/
+├── skills/                     # Documentación técnica por módulo
 ├── specs/                      # Especificaciones por sprint
-├── main.py                     # Entry point del bot
-├── .env.example                # Template de variables de entorno
-├── pyproject.toml              # Config de pytest, coverage, ruff
-└── requirements.txt            # Dependencias Python
+├── data/                       # SQLite DB (auto-generado)
+├── logs/                       # Archivos de log (auto-generado)
+├── pyproject.toml              # Dependencias y metadata
+└── README.md                   # Este archivo
 ```
 
-## Stack tecnologico
+---
 
-| Componente | Tecnologia |
-|---|---|
-| Lenguaje | Python 3.10+ |
-| Interfaz | python-telegram-bot >= 21.0 |
-| LLM / NLU | Groq API (llama-3.3-70b-versatile + fallback) |
-| Base de datos | aiosqlite + thefuzz (busqueda difusa) |
-| Agenda | Google Calendar API (Service Account) |
-| Configuracion | pydantic-settings + python-dotenv |
-| Logs | structlog |
-| Tests | pytest + pytest-asyncio + pytest-cov + pytest-mock |
+## 🎨 Tipos de Servicio y Colores
 
-## Ejecucion
+| Tipo             | Color en Calendar  | Emoji |
+| ---------------- | ------------------ | ----- |
+| Instalación      | 🔵 Azul            | 🔵    |
+| Revisión         | 🟡 Amarillo        | 🟡    |
+| Mantenimiento    | 🟠 Naranja         | 🟠    |
+| Reparación       | 🟠 Naranja         | 🟠    |
+| Presupuesto      | 🟡 Amarillo        | 🟡    |
+| Otro             | ⚪ Gris            | ⚪    |
+| Completado       | 🟢 Verde           | 🟢    |
 
-```bash
-# Activar el entorno virtual
-source .venv/bin/activate
+---
 
-# Ejecutar el bot
-python main.py
-```
+## 🔐 Roles y Permisos
 
-El bot arrancara en modo polling. Para detenerlo, usar Ctrl+C (SIGINT).
+| Acción            | Admin | Editor |
+| ----------------- | ----- | ------ |
+| Crear Evento      | ✅     | ❌      |
+| Editar Evento     | ✅     | ✅      |
+| Ver Eventos       | ✅     | ✅      |
+| Eliminar Evento   | ✅     | ❌      |
+| Terminar Evento   | ✅     | ✅      |
+| Ver Contactos     | ✅     | ✅      |
+| Editar Contacto   | ✅     | ❌      |
 
-## Roadmap
+---
 
-| Sprint | Foco | Estado |
-|---|---|---|
-| Sprint 1 | Fundamentos: Config + DB + Infraestructura | Completado |
-| Sprint 2 | Motor NLU: Groq Parser (intenciones + edicion) | Completado |
-| Sprint 3 | Google Calendar: CRUD completo + busquedas | Completado |
-| Sprint 4 | Telegram Hibrido: menu + flujos interactivos | Completado |
-| Sprint 5 | Motor de Consultas: filtros + edicion inteligente | Completado |
+## 📋 Roadmap
 
+| Sprint   | Entregable                                  | Spec           | Implementación |
+| -------- | ------------------------------------------- | -------------- | -------------- |
+| Sprint 1 | Configuración, DB, modelos, repositorio     | ✅ Done        | ⬜ Pendiente   |
+| Sprint 2 | Parser LLM (Groq) con fallback              | ✅ Done        | ⬜ Pendiente   |
+| Sprint 3 | Google Calendar: CRUD de eventos             | ✅ Done        | ⬜ Pendiente   |
+| Sprint 4 | Bot Telegram: menú, handlers, flujos         | ✅ Done        | ⬜ Pendiente   |
+| Sprint 5 | Orquestador: integración completa            | ✅ Done        | ⬜ Pendiente   |
+| Post-MVP | Notificaciones, reportes, dashboard          | ✅ Done        | ⬜ Backlog     |
 
+Ver [specs/README.md](specs/README.md) para las especificaciones detalladas.
 
+---
 
+## 📚 Documentación
 
-detecciones de fallas:
+| Recurso | Descripción |
+|---------|-------------|
+| [Documento del Proyecto](idea_general_proyecto.md) | Visión completa, arquitectura, casos de uso |
+| [Skills](skills/) | Módulos de conocimiento técnico |
+| [Specs](specs/README.md) | Especificaciones por sprint |
+| [Backlog Post-MVP](specs/post-mvp/backlog.md) | Mejoras futuras priorizadas |
 
-## Crear turno
+---
+
+## 🛠️ Desarrollo
+
+### Agregar un nuevo tipo de servicio
+
+1. Agregar al enum `TipoServicio` en `src/db/models.py`.
+2. Agregar el color en `src/calendar_api/colors.py`.
+3. Actualizar el CHECK constraint en el schema SQL.
+4. Actualizar los prompts del LLM en `src/llm/prompts.py`.
+
+### Agregar un nuevo handler de Telegram
+
+1. Crear `src/bot/handlers/nuevo_handler.py`.
+2. Implementar `get_conversation_handler()`.
+3. Registrar en `src/bot/app.py`.
+4. Agregar tests en `tests/unit/test_nuevo_handler.py`.
+
+---
+
+## ⚙️ Variables de Entorno
+
+| Variable                     | Requerida | Default                              | Descripción                    |
+| ---------------------------- | --------- | ------------------------------------ | ------------------------------ |
+| `TELEGRAM_BOT_TOKEN`        | ✅         | —                                    | Token del bot de Telegram      |
+| `ADMIN_TELEGRAM_IDS`        | ✅         | —                                    | IDs de admins (formato JSON)   |
+| `EDITOR_TELEGRAM_IDS`       | ❌         | `[]`                                 | IDs de editors (formato JSON)  |
+| `GROQ_API_KEY`              | ✅         | —                                    | API key de Groq                |
+| `GROQ_MODEL_PRIMARY`        | ❌         | `llama-3.3-70b-versatile`            | Modelo LLM primario            |
+| `GROQ_MODEL_FALLBACK`       | ❌         | `llama-3.1-8b-instant`               | Modelo LLM de respaldo         |
+| `GOOGLE_CALENDAR_ID`        | ✅         | —                                    | ID del calendario de Google    |
+| `GOOGLE_SERVICE_ACCOUNT_PATH`| ❌        | `credentials/service_account.json`   | Ruta al archivo de credenciales|
+| `SQLITE_DB_PATH`            | ❌         | `data/crm.db`                        | Ruta de la base de datos       |
+| `TIMEZONE`                   | ❌         | `America/Argentina/Buenos_Aires`     | Zona horaria                   |
+| `LOG_LEVEL`                  | ❌         | `DEBUG`                              | Nivel de logging               |
+
+---
+
+## 📄 Licencia
+
+Este proyecto es de uso privado. Todos los derechos reservados.

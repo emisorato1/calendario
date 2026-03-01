@@ -1,42 +1,59 @@
+# ═══════════════════════════════════════════
+# Entorno y Configuración
+# ═══════════════════════════════════════════
+.env
+!.env.example
+
+# ═══════════════════════════════════════════
+# Credenciales
+# ═══════════════════════════════════════════
+credentials/
+*.json
+!package.json
+
+# ═══════════════════════════════════════════
 # Python
+# ═══════════════════════════════════════════
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
 *.egg-info/
 dist/
 build/
+.venv/
+venv/
 *.egg
 
-# Virtual environment
-venv/
-.venv/
-env/
+# ═══════════════════════════════════════════
+# Datos y Logs (auto-generados)
+# ═══════════════════════════════════════════
+data/
+logs/
 
-# Environment variables
-.env
-
+# ═══════════════════════════════════════════
 # IDE
+# ═══════════════════════════════════════════
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
+# ═══════════════════════════════════════════
 # OS
+# ═══════════════════════════════════════════
 .DS_Store
 Thumbs.db
 
-# Project — datos de runtime
-data/crm.db
-data/backups/
-logs/*.log
-
-# Credenciales
-credentials/service_account.json
-
-# Test/Coverage
-.pytest_cache/
-htmlcov/
+# ═══════════════════════════════════════════
+# Testing
+# ═══════════════════════════════════════════
 .coverage
-coverage.xml
+htmlcov/
+.pytest_cache/
+
+# ═══════════════════════════════════════════
+# Herramientas
+# ═══════════════════════════════════════════
+.opencode/node_modules/
+.opencode/bun.lock
