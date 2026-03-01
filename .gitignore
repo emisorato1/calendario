@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Environment variables
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project — datos de runtime
+data/crm.db
+data/backups/
+logs/*.log
+
+# Credenciales
+credentials/service_account.json
+
+# Test/Coverage
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
