@@ -164,9 +164,15 @@ async def status_command(
     groq_client: GroqClient = context.bot_data.get("groq_client")
     if groq_client:
         try:
+            from pydantic import BaseModel
+
+            class PingResponse(BaseModel):
+                response: str
+
             await groq_client.call(
                 system_prompt="ping",
                 user_prompt="respond with 'pong'",
+                response_format=PingResponse,
             )
             results.append("🟢 Groq API: OK")
         except Exception as exc:

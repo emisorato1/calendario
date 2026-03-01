@@ -175,7 +175,7 @@ async def test_listar_clientes_respeta_limit(repo):
 
 async def test_get_cliente_inexistente_lanza_error(repo):
     with pytest.raises(ClienteNoEncontradoError):
-        await repo._get_cliente_by_id(99999)
+        await repo.get_cliente_by_id(99999)
 
 
 # ── buscar_servicio_por_event_id ──────────────────────────────────────────────
@@ -225,3 +225,42 @@ async def test_buscar_servicio_por_event_id_y_actualizar_estado(repo):
     updated = await repo.buscar_servicio_por_event_id("evt_cancel_test")
     assert updated is not None
     assert updated.estado == "cancelado"
+
+
+# ── actualizar_tipo_trabajo ──────────────────────────────────────────────────
+
+
+async def test_actualizar_tipo_trabajo(repo):
+    """Actualiza el tipo de trabajo de un servicio existente."""
+    c = await repo.crear_cliente({"nombre_completo": "García, Juan"})
+    servicio = Servicio(
+        id_cliente=c.id_cliente,
+        calendar_event_id="evt_tipo_test",
+        tipo_trabajo="revision",
+        estado="pendiente",
+    )
+    id_srv = await repo.registrar_servicio(servicio)
+
+    await repo.actualizar_tipo_trabajo(id_srv, "instalacion")
+
+    updated = await repo.buscar_servicio_por_event_id("evt_tipo_test")
+    assert updated is not None
+    assert updated.tipo_trabajo == "instalacion"
+
+
+# ── get_cliente_by_id (público) ──────────────────────────────────────────────
+
+
+async def test_get_cliente_by_id_existente(repo):
+    """Recupera cliente existente por ID."""
+    c = await repo.crear_cliente({"nombre_completo": "Martínez, Ana"})
+    result = await repo.get_cliente_by_id(c.id_cliente)
+    assert result.nombre_completo == "Martínez, Ana"
+
+
+async def test_get_cliente_by_id_inexistente(repo):
+    """ID inexistente lanza ClienteNoEncontradoError."""
+    from core.exceptions import ClienteNoEncontradoError
+
+    with pytest.raises(ClienteNoEncontradoError):
+        await repo.get_cliente_by_id(99999)

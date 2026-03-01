@@ -11,6 +11,7 @@ from telegram.ext import (
     ContextTypes,
     ConversationHandler,
     MessageHandler,
+    TypeHandler,
     filters,
 )
 
@@ -31,6 +32,7 @@ from core.logger import get_logger
 from core.orchestrator import (
     AWAITING_CANCEL_CONFIRM,
     AWAITING_CANCEL_SELECTION,
+    AWAITING_CLIENT_NAME,
     AWAITING_CONFIRMATION,
     AWAITING_CREATION_INPUT,
     AWAITING_EDIT_CONFIRM,
@@ -267,7 +269,7 @@ async def _confirmation_callback(
         cliente_id = ctx_data.get("cliente_id")
         if cliente_id and ctx.cliente_obj is None:
             try:
-                ctx.cliente_obj = await orchestrator._repo._get_cliente_by_id(cliente_id)
+                ctx.cliente_obj = await orchestrator._repo.get_cliente_by_id(cliente_id)
             except Exception:
                 pass
 
@@ -422,11 +424,20 @@ async def _edit_confirm_callback(
 
     if query.data == "confirm":
         evento = context.user_data.get("evento_a_editar", {})
-        patch = context.user_data.get("patch", {})
-        orchestrator: Orchestrator = context.bot_data["orchestrator"]
+        event_id = evento.get("id")
 
-        response = await orchestrator.confirm_edit(evento.get("id", ""), patch)
-        await query.edit_message_text(response.text, parse_mode="Markdown")
+        if event_id:
+            patch = context.user_data.get("patch", {})
+            edit_instr = context.user_data.get("edit_instruction", {})
+            nuevo_tipo = edit_instr.get("nuevo_tipo_servicio")
+            orchestrator: Orchestrator = context.bot_data["orchestrator"]
+
+            response = await orchestrator.confirm_edit(
+                event_id, patch, nuevo_tipo_trabajo=nuevo_tipo
+            )
+            await query.edit_message_text(response.text, parse_mode="Markdown")
+        else:
+            await query.edit_message_text("❌ No se encontró el evento.")
     else:
         await query.edit_message_text("Edición cancelada. El evento no fue modificado.")
 
@@ -446,6 +457,24 @@ async def _idle_text_handler(
 
     response = await orchestrator.process_message(update.message.text, user_id)
     return await _send_orchestrator_response(update, context, response)
+
+
+async def _awaiting_client_name_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> int:
+    """Recibe nombre de cliente en AWAITING_CLIENT_NAME para listar sus eventos."""
+    orchestrator: Orchestrator = context.bot_data["orchestrator"]
+    nombre = update.message.text.strip()
+
+    if not nombre:
+        await update.message.reply_text("Por favor escribí el nombre del cliente:")
+        return AWAITING_CLIENT_NAME
+
+    await update.message.reply_text("⏳ Buscando eventos...")
+    text = await orchestrator.listar_por_cliente(nombre)
+    await update.message.reply_text(text, parse_mode="Markdown")
+    return IDLE
 
 
 async def _list_callback_handler(
@@ -475,7 +504,7 @@ async def _list_callback_handler(
 
     response = await orchestrator.resolve_list_query(parsed)
     await query.edit_message_text(response.text, parse_mode="Markdown")
-    return IDLE
+    return response.next_state if response.next_state is not None else IDLE
 
 
 async def _timeout_handler(
@@ -509,7 +538,11 @@ async def _send_orchestrator_response(
     """Envía la respuesta del orquestador al usuario."""
     # Guardar contexto si lo hay
     if response.context:
-        context.user_data["creation_context"] = response.context
+        # Eventos para selección en flujos cancel/edit via NLU
+        if "eventos_seleccion" in response.context:
+            context.user_data["eventos_seleccion"] = response.context["eventos_seleccion"]
+        else:
+            context.user_data["creation_context"] = response.context
 
     # Enviar mensaje
     if is_callback and update.callback_query:
@@ -543,34 +576,38 @@ def build_conversation_handler(settings: Settings) -> ConversationHandler:
     authorized = AuthorizedUserFilter(settings)
     admin_only = AdminOnlyFilter(settings)
 
+    # Handlers que aplican tanto en entry_points como en IDLE state
+    idle_handlers = [
+        # Botones del menú principal (admin-only para crear y cancelar)
+        MessageHandler(
+            admin_only & filters.Regex(r"^📅 Crear Turno$"),
+            _button_crear_turno,
+        ),
+        MessageHandler(
+            authorized & filters.Regex(r"^📋 Listar Eventos$"),
+            _button_listar_eventos,
+        ),
+        MessageHandler(
+            authorized & filters.Regex(r"^✏️ Editar Evento$"),
+            _button_editar_evento,
+        ),
+        MessageHandler(
+            admin_only & filters.Regex(r"^🚫 Cancelar Evento$"),
+            _button_cancelar_evento,
+        ),
+        # Texto libre en IDLE
+        MessageHandler(
+            authorized & filters.TEXT & ~filters.COMMAND,
+            _idle_text_handler,
+        ),
+        # Callbacks del submenú de listado
+        CallbackQueryHandler(_list_callback_handler, pattern=r"^list:"),
+    ]
+
     return ConversationHandler(
-        entry_points=[
-            # Botones del menú principal
-            MessageHandler(
-                authorized & filters.Regex(r"^📅 Crear Turno$"),
-                _button_crear_turno,
-            ),
-            MessageHandler(
-                authorized & filters.Regex(r"^📋 Listar Eventos$"),
-                _button_listar_eventos,
-            ),
-            MessageHandler(
-                authorized & filters.Regex(r"^✏️ Editar Evento$"),
-                _button_editar_evento,
-            ),
-            MessageHandler(
-                authorized & filters.Regex(r"^🚫 Cancelar Evento$"),
-                _button_cancelar_evento,
-            ),
-            # Texto libre en IDLE
-            MessageHandler(
-                authorized & filters.TEXT & ~filters.COMMAND,
-                _idle_text_handler,
-            ),
-            # Callbacks del submenú de listado
-            CallbackQueryHandler(_list_callback_handler, pattern=r"^list:"),
-        ],
+        entry_points=idle_handlers,
         states={
+            IDLE: idle_handlers,
             AWAITING_CREATION_INPUT: [
                 MessageHandler(
                     authorized & filters.TEXT & ~filters.COMMAND,
@@ -622,6 +659,15 @@ def build_conversation_handler(settings: Settings) -> ConversationHandler:
                     _edit_confirm_callback,
                     pattern=r"^(confirm|cancel)$",
                 ),
+            ],
+            AWAITING_CLIENT_NAME: [
+                MessageHandler(
+                    authorized & filters.TEXT & ~filters.COMMAND,
+                    _awaiting_client_name_handler,
+                ),
+            ],
+            ConversationHandler.TIMEOUT: [
+                TypeHandler(Update, _timeout_handler),
             ],
         },
         fallbacks=[

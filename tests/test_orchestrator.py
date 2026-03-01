@@ -18,6 +18,7 @@ from agents.groq_parser.schemas import (
 from config.constants import TIMEZONE
 from core.orchestrator import (
     AWAITING_CANCEL_SELECTION,
+    AWAITING_CLIENT_NAME,
     AWAITING_CONFIRMATION,
     AWAITING_EDIT_CONFIRM,
     AWAITING_EDIT_SELECTION,
@@ -540,13 +541,14 @@ class TestResolveListQuery:
     async def test_listar_cliente_sin_nombre_pide_nombre(
         self, mock_settings, mock_groq_client, mock_calendar_client, mock_repository
     ):
-        """Intención listar_cliente sin nombre → pregunta."""
+        """Intención listar_cliente sin nombre → pregunta y devuelve AWAITING_CLIENT_NAME."""
         orch = _make_orchestrator(
             mock_settings, mock_groq_client, mock_calendar_client, mock_repository
         )
         parsed = ParsedMessage(intencion=Intencion.listar_cliente)
         response = await orch.resolve_list_query(parsed)
         assert "cliente" in response.text.lower()
+        assert response.next_state == AWAITING_CLIENT_NAME
 
     async def test_listar_historial(
         self, mock_settings, mock_groq_client, mock_calendar_client, mock_repository
@@ -802,14 +804,41 @@ class TestConfirmEdit:
     async def test_patch_con_color_busca_servicio_en_db(
         self, mock_settings, mock_groq_client, mock_calendar_client, mock_repository
     ):
-        """Patch con colorId → busca servicio en DB para potencial update de tipo."""
+        """Patch con nuevo_tipo_trabajo → busca servicio en DB y actualiza tipo."""
         orch = _make_orchestrator(
             mock_settings, mock_groq_client, mock_calendar_client, mock_repository
         )
         patch_data = {"colorId": "9"}
-        response = await orch.confirm_edit("evt_1", patch_data)
+        response = await orch.confirm_edit("evt_1", patch_data, nuevo_tipo_trabajo="instalacion")
         assert "actualizado" in response.text.lower()
         mock_repository.buscar_servicio_por_event_id.assert_called_once_with("evt_1")
+        mock_repository.actualizar_tipo_trabajo.assert_called_once_with(1, "instalacion")
+
+    async def test_sin_nuevo_tipo_no_busca_en_db(
+        self, mock_settings, mock_groq_client, mock_calendar_client, mock_repository
+    ):
+        """Sin nuevo_tipo_trabajo → no busca ni actualiza en DB."""
+        orch = _make_orchestrator(
+            mock_settings, mock_groq_client, mock_calendar_client, mock_repository
+        )
+        response = await orch.confirm_edit("evt_1", {"location": "x"})
+        assert "actualizado" in response.text.lower()
+        mock_repository.buscar_servicio_por_event_id.assert_not_called()
+        mock_repository.actualizar_tipo_trabajo.assert_not_called()
+
+    async def test_nuevo_tipo_sin_servicio_en_db_no_crashea(
+        self, mock_settings, mock_groq_client, mock_calendar_client, mock_repository
+    ):
+        """nuevo_tipo_trabajo dado pero sin servicio en DB → no crashea."""
+        mock_repository.buscar_servicio_por_event_id.return_value = None
+        orch = _make_orchestrator(
+            mock_settings, mock_groq_client, mock_calendar_client, mock_repository
+        )
+        response = await orch.confirm_edit(
+            "evt_1", {"colorId": "9"}, nuevo_tipo_trabajo="instalacion"
+        )
+        assert "actualizado" in response.text.lower()
+        mock_repository.actualizar_tipo_trabajo.assert_not_called()
 
     async def test_resultado_incluye_link(
         self, mock_settings, mock_groq_client, mock_calendar_client, mock_repository

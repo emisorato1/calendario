@@ -68,6 +68,7 @@ AWAITING_CANCEL_CONFIRM = 5
 AWAITING_EDIT_SELECTION = 6
 AWAITING_EDIT_INSTRUCTION = 7
 AWAITING_EDIT_CONFIRM = 8
+AWAITING_CLIENT_NAME = 9
 
 
 # Intenciones que requieren rol Admin
@@ -433,8 +434,8 @@ class Orchestrator:
             nombre = parsed.cliente_consulta or parsed.nombre_cliente
             if not nombre:
                 return OrchestratorResponse(
-                    text="¿De qué cliente querés ver los eventos?",
-                    next_state=IDLE,
+                    text="👤 ¿De qué cliente querés ver los eventos? Escribí el nombre:",
+                    next_state=AWAITING_CLIENT_NAME,
                 )
             text = await self.listar_por_cliente(nombre)
             return OrchestratorResponse(text=text, next_state=IDLE)
@@ -658,14 +659,14 @@ class Orchestrator:
         self,
         event_id: str,
         patch: dict,
-        servicio_id: int | None = None,
+        nuevo_tipo_trabajo: str | None = None,
     ) -> OrchestratorResponse:
         """Aplica PATCH al Calendar y actualiza DB si cambió el tipo de servicio.
 
         Args:
             event_id: ID del evento en Google Calendar.
             patch: Dict con los campos a modificar.
-            servicio_id: ID del servicio en DB (opcional).
+            nuevo_tipo_trabajo: Nuevo tipo de servicio si cambió (ej: "instalacion").
 
         Returns:
             OrchestratorResponse con confirmación o error.
@@ -679,15 +680,14 @@ class Orchestrator:
                 next_state=IDLE,
             )
 
-        # Si cambió tipo de servicio (colorId en patch), actualizar DB
-        if "colorId" in patch:
+        # Si cambió tipo de servicio, actualizar tipo_trabajo en DB
+        if nuevo_tipo_trabajo:
             try:
                 servicio = await self._repo.buscar_servicio_por_event_id(event_id)
                 if servicio and servicio.id_servicio is not None:
-                    # El tipo de servicio se refleja por el color, pero
-                    # no tenemos el campo directo en el patch.
-                    # Buscamos el nuevo tipo desde la EditInstruction si se pasó
-                    pass
+                    await self._repo.actualizar_tipo_trabajo(
+                        servicio.id_servicio, nuevo_tipo_trabajo
+                    )
             except Exception as exc:
                 log.warning("error_actualizar_db_edit", error=str(exc))
 
@@ -712,6 +712,7 @@ class Orchestrator:
         return OrchestratorResponse(
             text=text,
             keyboard=build_event_selection_keyboard(eventos),
+            context={"eventos_seleccion": eventos},
             next_state=AWAITING_CANCEL_SELECTION,
         )
 
@@ -724,6 +725,7 @@ class Orchestrator:
         return OrchestratorResponse(
             text=text,
             keyboard=build_event_selection_keyboard(eventos),
+            context={"eventos_seleccion": eventos},
             next_state=AWAITING_EDIT_SELECTION,
         )
 

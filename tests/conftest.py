@@ -183,6 +183,7 @@ def mock_repository(cliente_garcia) -> AsyncMock:
         estado="pendiente",
     )
     repo.actualizar_estado_servicio.return_value = None
+    repo.actualizar_tipo_trabajo.return_value = None
     repo._conn = AsyncMock()
     repo._conn.execute.return_value = MagicMock()
     return repo

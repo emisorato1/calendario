@@ -17,6 +17,7 @@ from agents.telegram_listener.commands import (
 from agents.telegram_listener.handler import (
     CREATION_HELP_TEXT,
     TIMEOUT_TEXT,
+    _awaiting_client_name_handler,
     _button_cancelar_evento,
     _button_crear_turno,
     _button_editar_evento,
@@ -35,6 +36,7 @@ from agents.telegram_listener.handler import (
 from core.orchestrator import (
     AWAITING_CANCEL_CONFIRM,
     AWAITING_CANCEL_SELECTION,
+    AWAITING_CLIENT_NAME,
     AWAITING_CONFIRMATION,
     AWAITING_CREATION_INPUT,
     AWAITING_EDIT_CONFIRM,
@@ -428,6 +430,20 @@ class TestSendOrchestratorResponse:
         result = await _send_orchestrator_response(update, mock_context, response)
         assert result == IDLE
 
+    async def test_guarda_eventos_seleccion_en_user_data(self, mock_telegram_update, mock_context):
+        """Si context tiene eventos_seleccion → guarda en user_data['eventos_seleccion'] (Issue 4)."""
+        update = mock_telegram_update()
+        eventos = [{"id": "evt1", "summary": "Instalación"}]
+        ctx = {"eventos_seleccion": eventos}
+        response = OrchestratorResponse(
+            text="Seleccioná un evento:", context=ctx, next_state=AWAITING_CANCEL_SELECTION
+        )
+        result = await _send_orchestrator_response(update, mock_context, response)
+        assert result == AWAITING_CANCEL_SELECTION
+        assert mock_context.user_data["eventos_seleccion"] == eventos
+        # No debe guardar en creation_context
+        assert "creation_context" not in mock_context.user_data
+
 
 # ── _timeout_handler ─────────────────────────────────────────────────────────
 
@@ -477,6 +493,25 @@ class TestBuildConversationHandler:
         """Tiene fallbacks (/start)."""
         handler = build_conversation_handler(mock_settings)
         assert len(handler.fallbacks) > 0
+
+    def test_idle_en_states(self, mock_settings):
+        """IDLE está incluido en el dict de states (Issue 2: evita que la conversación se atasque)."""
+        handler = build_conversation_handler(mock_settings)
+        assert IDLE in handler.states
+        assert len(handler.states[IDLE]) > 0
+
+    def test_timeout_en_states(self, mock_settings):
+        """ConversationHandler.TIMEOUT está registrado en states (Issue 1)."""
+        from telegram.ext import ConversationHandler as CH
+
+        handler = build_conversation_handler(mock_settings)
+        assert CH.TIMEOUT in handler.states
+        assert len(handler.states[CH.TIMEOUT]) > 0
+
+    def test_awaiting_client_name_en_states(self, mock_settings):
+        """AWAITING_CLIENT_NAME está incluido en states."""
+        handler = build_conversation_handler(mock_settings)
+        assert AWAITING_CLIENT_NAME in handler.states
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -587,7 +622,7 @@ class TestEditConfirmUsesOrchestrator:
         result = await _edit_confirm_callback(update, mock_context)
         assert result == IDLE
         orchestrator.confirm_edit.assert_called_once_with(
-            "evt_test_1", {"location": "Av. Libertador 1234"}
+            "evt_test_1", {"location": "Av. Libertador 1234"}, nuevo_tipo_trabajo=None
         )
         call_args = update.callback_query.edit_message_text.call_args
         assert "actualizado" in call_args[0][0].lower()
@@ -609,4 +644,87 @@ class TestEditConfirmUsesOrchestrator:
         call_args = update.callback_query.edit_message_text.call_args
         assert (
             "cancelada" in call_args[0][0].lower() or "no fue modificado" in call_args[0][0].lower()
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# _awaiting_client_name_handler
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestEditConfirmSinEventId:
+    """Tests para _edit_confirm_callback sin event_id (Issue 10)."""
+
+    async def test_confirm_sin_event_id_muestra_error(
+        self, mock_telegram_callback_update, mock_context
+    ):
+        """Si evento_a_editar no tiene id → mensaje de error."""
+        update = mock_telegram_callback_update(callback_data="confirm")
+        mock_context.user_data["evento_a_editar"] = {}  # Sin id
+
+        result = await _edit_confirm_callback(update, mock_context)
+        assert result == IDLE
+        call_args = update.callback_query.edit_message_text.call_args
+        assert "no se encontró" in call_args[0][0].lower()
+
+    async def test_confirm_sin_evento_a_editar_muestra_error(
+        self, mock_telegram_callback_update, mock_context
+    ):
+        """Si no hay evento_a_editar en user_data → mensaje de error."""
+        update = mock_telegram_callback_update(callback_data="confirm")
+        # user_data vacío — no tiene "evento_a_editar"
+
+        result = await _edit_confirm_callback(update, mock_context)
+        assert result == IDLE
+        call_args = update.callback_query.edit_message_text.call_args
+        assert "no se encontró" in call_args[0][0].lower()
+
+
+class TestAwaitingClientNameHandler:
+    """Tests para _awaiting_client_name_handler."""
+
+    async def test_nombre_valido_busca_y_retorna_idle(self, mock_telegram_update, mock_context):
+        """Nombre válido → listar_por_cliente + IDLE."""
+        update = mock_telegram_update(text="García")
+        orchestrator = mock_context.bot_data["orchestrator"]
+        orchestrator.listar_por_cliente = AsyncMock(
+            return_value="👤 *Turnos de García, Juan:*\n\n*Próximos:*\nNo hay turnos próximos."
+        )
+
+        result = await _awaiting_client_name_handler(update, mock_context)
+        assert result == IDLE
+        orchestrator.listar_por_cliente.assert_called_once_with("García")
+        # Verifica que se envió el resultado
+        calls = update.message.reply_text.call_args_list
+        assert any("García" in str(c) for c in calls)
+
+    async def test_nombre_vacio_repregunta(self, mock_telegram_update, mock_context):
+        """Nombre vacío → repregunta y queda en AWAITING_CLIENT_NAME."""
+        update = mock_telegram_update(text="   ")
+
+        result = await _awaiting_client_name_handler(update, mock_context)
+        assert result == AWAITING_CLIENT_NAME
+        call_args = update.message.reply_text.call_args
+        assert "nombre" in call_args[0][0].lower()
+
+    async def test_confirm_edit_con_tipo_servicio_pasa_tipo(
+        self, mock_telegram_callback_update, mock_context, evento_proximo
+    ):
+        """Confirm con edit_instruction que tiene nuevo_tipo_servicio → lo pasa a confirm_edit."""
+        update = mock_telegram_callback_update(callback_data="confirm")
+        mock_context.user_data["evento_a_editar"] = evento_proximo
+        mock_context.user_data["patch"] = {"colorId": "9"}
+        mock_context.user_data["edit_instruction"] = {"nuevo_tipo_servicio": "instalacion"}
+
+        orchestrator = mock_context.bot_data["orchestrator"]
+        orchestrator.confirm_edit = AsyncMock(
+            return_value=OrchestratorResponse(
+                text="✅ Evento actualizado exitosamente.", next_state=IDLE
+            )
+        )
+
+        result = await _edit_confirm_callback(update, mock_context)
+        assert result == IDLE
+        orchestrator.confirm_edit.assert_called_once_with(
+            "evt_test_1", {"colorId": "9"}, nuevo_tipo_trabajo="instalacion"
         )

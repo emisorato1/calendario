@@ -254,7 +254,8 @@ class CalendarClient:
     ) -> list[dict]:
         """Busca eventos cuyo título contenga el nombre del cliente.
 
-        Busca en los próximos 90 días de eventos y filtra por nombre.
+        Busca eventos pasados (90 días atrás) y futuros (90 días adelante)
+        para poder separar en pendientes e historial.
 
         Args:
             nombre_cliente: Nombre del cliente a buscar.
@@ -265,12 +266,13 @@ class CalendarClient:
         now = datetime.now(tz)
         from datetime import timedelta
 
-        end = now + timedelta(days=90)
+        time_min = now - timedelta(days=90)
+        time_max = now + timedelta(days=90)
         start = time_mod.monotonic()
         request = self._service.events().list(
             calendarId=self._calendar_id,
-            timeMin=now.isoformat(),
-            timeMax=end.isoformat(),
+            timeMin=time_min.isoformat(),
+            timeMax=time_max.isoformat(),
             maxResults=100,
             singleEvents=True,
             orderBy="startTime",

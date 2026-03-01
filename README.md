@@ -129,3 +129,11 @@ El bot arrancara en modo polling. Para detenerlo, usar Ctrl+C (SIGINT).
 | Sprint 3 | Google Calendar: CRUD completo + busquedas | Completado |
 | Sprint 4 | Telegram Hibrido: menu + flujos interactivos | Completado |
 | Sprint 5 | Motor de Consultas: filtros + edicion inteligente | Completado |
+
+
+
+
+
+detecciones de fallas:
+
+## Crear turno

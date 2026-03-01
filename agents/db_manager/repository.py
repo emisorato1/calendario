@@ -109,7 +109,7 @@ class DBRepository:
         cliente_id = cursor.lastrowid
         self._cache.clear()
         logger.info("cliente_creado", id_cliente=cliente_id, nombre=datos["nombre_completo"])
-        return await self._get_cliente_by_id(cliente_id)
+        return await self.get_cliente_by_id(cliente_id)
 
     async def actualizar_cliente(self, id_cliente: int, cambios: dict) -> Cliente:
         """
@@ -120,7 +120,7 @@ class DBRepository:
             cambios: Dict con los campos a modificar.
         """
         if not cambios:
-            return await self._get_cliente_by_id(id_cliente)
+            return await self.get_cliente_by_id(id_cliente)
 
         set_clause = ", ".join(f"{k} = :{k}" for k in cambios)
         cambios["id_cliente"] = id_cliente
@@ -131,7 +131,7 @@ class DBRepository:
         await self._conn.commit()
         self._cache.clear()
         logger.info("cliente_actualizado", id_cliente=id_cliente, campos=list(cambios.keys()))
-        return await self._get_cliente_by_id(id_cliente)
+        return await self.get_cliente_by_id(id_cliente)
 
     async def listar_clientes(self, limit: int = 10) -> list[Cliente]:
         """
@@ -238,9 +238,24 @@ class DBRepository:
         await self._conn.commit()
         logger.info("servicio_estado_actualizado", id_servicio=id_servicio, estado=estado)
 
+    async def actualizar_tipo_trabajo(self, id_servicio: int, tipo_trabajo: str) -> None:
+        """
+        Actualiza el tipo de trabajo de un servicio.
+
+        Args:
+            id_servicio: ID del servicio a actualizar.
+            tipo_trabajo: Nuevo tipo de trabajo (ej: 'instalacion', 'revision').
+        """
+        await self._conn.execute(
+            "UPDATE historial_servicios SET tipo_trabajo = ? WHERE id_servicio = ?",
+            (tipo_trabajo, id_servicio),
+        )
+        await self._conn.commit()
+        logger.info("servicio_tipo_actualizado", id_servicio=id_servicio, tipo_trabajo=tipo_trabajo)
+
     # ── Helpers privados ──────────────────────────────────────────────────────
 
-    async def _get_cliente_by_id(self, id_cliente: int) -> Cliente:
+    async def get_cliente_by_id(self, id_cliente: int) -> Cliente:
         """Recupera un cliente por su ID. Lanza ClienteNoEncontradoError si no existe."""
         async with self._conn.execute(
             """
