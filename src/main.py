@@ -1,7 +1,6 @@
 # src/main.py
 """Entry point del sistema — arranca BD, Calendar, LLM, Orchestrator y Bot."""
 
-import asyncio
 import logging
 import sys
 
@@ -18,9 +17,18 @@ from src.orchestrator.orchestrator import Orchestrator
 
 logger = logging.getLogger(__name__)
 
+# Referencia al DatabaseManager para cleanup en post_shutdown
+_db_manager: DatabaseManager | None = None
 
-async def main() -> None:
-    """Inicializa todos los componentes y arranca el bot en modo polling."""
+
+def main() -> None:
+    """Inicializa todos los componentes y arranca el bot en modo polling.
+
+    python-telegram-bot v20 maneja su propio event loop con run_polling(),
+    por lo que esta función es sincrónica. La inicialización async de la BD
+    se hace vía post_init del Application, y el cleanup vía post_shutdown.
+    """
+    global _db_manager
 
     # 1. Cargar y validar configuración (fail-fast si falta algo)
     settings = get_settings()
@@ -30,15 +38,9 @@ async def main() -> None:
     setup_logging(settings.log_level, settings.log_file)
     logger.info("Configuración cargada correctamente")
 
-    # 3. Inicializar base de datos
-    db_manager = DatabaseManager(settings.sqlite_db_path)
-    await db_manager.connect()
-    await db_manager.initialize()
-    logger.info("Base de datos inicializada: %s", settings.sqlite_db_path)
+    # 3. Preparar componentes síncronos
+    _db_manager = DatabaseManager(settings.sqlite_db_path)
 
-    repository = Repository(db_manager.db)
-
-    # 4. Inicializar Google Calendar (sync client envuelto en async)
     sync_calendar = GoogleCalendarClient(
         settings.google_service_account_path,
         settings.google_calendar_id,
@@ -46,34 +48,48 @@ async def main() -> None:
     calendar_client = AsyncGoogleCalendarClient(sync_calendar)
     logger.info("Google Calendar inicializado")
 
-    # 5. Inicializar LLM Parser (cadena con fallback)
     llm_chain = build_llm_chain()
     llm_parser = LLMParser(llm_chain)
     logger.info("LLM Parser inicializado")
 
-    # 6. Crear Orquestador
-    orchestrator = Orchestrator(
-        repository=repository,
-        calendar_client=calendar_client,
-        llm_parser=llm_parser,
-        settings=settings,
-    )
-    logger.info("Orquestador creado")
+    # 4. Crear Application con hooks para init/shutdown async
+    app = create_application()
 
-    # 7. Crear y ejecutar Bot
-    app = create_application(orchestrator)
+    async def post_init(application) -> None:
+        """Hook que corre dentro del event loop de PTB — init async aquí."""
+        assert _db_manager is not None
+        await _db_manager.connect()
+        await _db_manager.initialize()
+        logger.info("Base de datos inicializada: %s", settings.sqlite_db_path)
+
+        repository = Repository(_db_manager.db)
+
+        orchestrator = Orchestrator(
+            repository=repository,
+            calendar_client=calendar_client,
+            llm_parser=llm_parser,
+            settings=settings,
+        )
+        application.bot_data["orchestrator"] = orchestrator
+        logger.info("Orquestador creado e inyectado")
+
+    async def post_shutdown(application) -> None:
+        """Hook de cleanup — cerrar BD."""
+        if _db_manager:
+            await _db_manager.close()
+            logger.info("Sistema finalizado")
+
+    app.post_init = post_init
+    app.post_shutdown = post_shutdown
+
+    # 5. Arrancar — run_polling maneja su propio event loop
     logger.info("Bot iniciando en modo polling...")
-
-    try:
-        app.run_polling(drop_pending_updates=True)
-    finally:
-        await db_manager.close()
-        logger.info("Sistema finalizado")
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        main()
     except KeyboardInterrupt:
         print("\nBot detenido por el usuario.")
         sys.exit(0)
