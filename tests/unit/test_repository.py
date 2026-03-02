@@ -5,99 +5,12 @@ import pytest
 import aiosqlite
 from datetime import datetime, date
 
-from src.db.models import Cliente, Evento, TipoServicio, EstadoEvento
+from src.db.models import Cliente, Evento, Prioridad, TipoServicio, EstadoEvento
 from src.db.repository import Repository
 from src.core.exceptions import DuplicateClienteError, DatabaseError
 
 
-@pytest.fixture
-async def db_connection():
-    """Crea una conexión a BD en memoria con schema inicializado."""
-    db = await aiosqlite.connect(":memory:")
-    db.row_factory = aiosqlite.Row
-    await db.execute("PRAGMA foreign_keys=ON")
-
-    # Crear schema
-    await db.executescript("""
-        CREATE TABLE IF NOT EXISTS clientes (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            nombre      TEXT    NOT NULL,
-            telefono    TEXT    UNIQUE,
-            direccion   TEXT,
-            notas       TEXT,
-            created_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
-            updated_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
-        );
-
-        CREATE TABLE IF NOT EXISTS eventos (
-            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-            cliente_id          INTEGER NOT NULL REFERENCES clientes(id),
-            google_event_id     TEXT    UNIQUE,
-            tipo_servicio       TEXT    NOT NULL CHECK(tipo_servicio IN (
-                                    'instalacion','revision','mantenimiento',
-                                    'reparacion','presupuesto','otro','completado'
-                                )),
-            fecha_hora          TEXT    NOT NULL,
-            duracion_minutos    INTEGER NOT NULL DEFAULT 60,
-            estado              TEXT    NOT NULL DEFAULT 'pendiente' CHECK(estado IN (
-                                    'pendiente','completado','cancelado'
-                                )),
-            notas               TEXT,
-            trabajo_realizado   TEXT,
-            monto_cobrado       REAL,
-            notas_cierre        TEXT,
-            fotos               TEXT,
-            created_at          TEXT   NOT NULL DEFAULT (datetime('now', 'localtime')),
-            updated_at          TEXT   NOT NULL DEFAULT (datetime('now', 'localtime'))
-        );
-
-        CREATE TABLE IF NOT EXISTS usuarios_autorizados (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            telegram_id  INTEGER UNIQUE NOT NULL,
-            nombre       TEXT,
-            rol          TEXT    NOT NULL CHECK(rol IN ('admin','editor')),
-            activo       INTEGER NOT NULL DEFAULT 1,
-            created_at   TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_eventos_estado ON eventos(estado);
-        CREATE INDEX IF NOT EXISTS idx_eventos_fecha ON eventos(fecha_hora);
-        CREATE INDEX IF NOT EXISTS idx_eventos_cliente ON eventos(cliente_id);
-        CREATE INDEX IF NOT EXISTS idx_clientes_nombre ON clientes(nombre);
-    """)
-    await db.commit()
-
-    yield db
-    await db.close()
-
-
-@pytest.fixture
-async def repo(db_connection):
-    """Crea un Repository con la conexión de test."""
-    return Repository(db_connection, cache_ttl=300)
-
-
-@pytest.fixture
-def sample_cliente():
-    """Cliente de ejemplo."""
-    return Cliente(
-        nombre="Juan Pérez",
-        telefono="+5491155551234",
-        direccion="Av. Corrientes 1234",
-        notas="Cliente regular",
-    )
-
-
-@pytest.fixture
-def sample_evento():
-    """Evento de ejemplo (requiere un cliente con id=1)."""
-    return Evento(
-        cliente_id=1,
-        tipo_servicio=TipoServicio.INSTALACION,
-        fecha_hora=datetime(2026, 3, 15, 10, 0),
-        duracion_minutos=60,
-        notas="Instalar aire acondicionado",
-    )
+# Fixtures db_connection, repo, sample_cliente, sample_evento están en conftest.py
 
 
 class TestClienteCRUD:
@@ -312,6 +225,32 @@ class TestEventoCRUD:
         recovered = await repo.get_evento_by_id(evento_id)
         assert recovered.fotos == ["foto1.jpg", "foto2.jpg"]
 
+    async def test_evento_prioridad_default(self, repo):
+        """Evento sin prioridad explícita se guarda como 'normal'."""
+        client_id = await self._create_client(repo)
+        evento = Evento(
+            cliente_id=client_id,
+            tipo_servicio=TipoServicio.INSTALACION,
+            fecha_hora=datetime(2026, 3, 15, 10, 0),
+        )
+        evento_id = await repo.create_evento(evento)
+        recovered = await repo.get_evento_by_id(evento_id)
+        assert recovered.prioridad == Prioridad.NORMAL
+
+    async def test_evento_prioridad_alta_roundtrip(self, repo):
+        """Evento con prioridad alta se guarda y recupera correctamente."""
+        client_id = await self._create_client(repo)
+        evento = Evento(
+            cliente_id=client_id,
+            tipo_servicio=TipoServicio.REPARACION,
+            prioridad=Prioridad.ALTA,
+            fecha_hora=datetime(2026, 3, 15, 10, 0),
+            notas="Urgente - cliente sin servicio",
+        )
+        evento_id = await repo.create_evento(evento)
+        recovered = await repo.get_evento_by_id(evento_id)
+        assert recovered.prioridad == Prioridad.ALTA
+
     async def test_list_eventos_by_date(self, repo):
         """Listar eventos de una fecha específica."""
         client_id = await self._create_client(repo)
@@ -377,3 +316,36 @@ class TestCacheIntegration:
         await repo.update_cliente(client_id, nombre="Modificado")
         clientes = await repo.list_clientes()
         assert clientes[0].nombre == "Modificado"
+
+
+class TestFieldWhitelists:
+    """Tests de whitelists contra SQL injection vía kwargs keys."""
+
+    async def _create_client(self, repo) -> int:
+        return await repo.create_cliente(Cliente(nombre="Test Client"))
+
+    async def test_update_cliente_rejects_invalid_field(self, repo):
+        """update_cliente rechaza campos no permitidos."""
+        client_id = await repo.create_cliente(Cliente(nombre="Test"))
+        with pytest.raises(ValueError, match="Campos no permitidos para cliente"):
+            await repo.update_cliente(client_id, id=999)
+
+    async def test_update_cliente_rejects_sql_injection_key(self, repo):
+        """update_cliente rechaza claves con SQL injection."""
+        client_id = await repo.create_cliente(Cliente(nombre="Test"))
+        with pytest.raises(ValueError, match="Campos no permitidos para cliente"):
+            await repo.update_cliente(client_id, **{"nombre = 'hacked' --": "x"})
+
+    async def test_update_evento_rejects_invalid_field(self, repo, sample_evento):
+        """update_evento rechaza campos no permitidos."""
+        await self._create_client(repo)
+        evento_id = await repo.create_evento(sample_evento)
+        with pytest.raises(ValueError, match="Campos no permitidos para evento"):
+            await repo.update_evento(evento_id, id=999)
+
+    async def test_complete_evento_rejects_invalid_field(self, repo, sample_evento):
+        """complete_evento rechaza campos no permitidos."""
+        await self._create_client(repo)
+        evento_id = await repo.create_evento(sample_evento)
+        with pytest.raises(ValueError, match="Campos no permitidos para cierre"):
+            await repo.complete_evento(evento_id, estado="cancelado")

@@ -78,9 +78,24 @@ class LLMUnavailableError(LLMError):
 
 
 class ScheduleConflictError(AgenteCalendarioError):
-    """Conflicto de horario: ya hay un evento agendado."""
+    """Conflicto de horario: ya hay un evento agendado.
 
-    pass
+    Attributes:
+        conflicting_event: Datos del evento existente que genera el conflicto.
+        available_slots: Lista de horarios alternativos disponibles
+            (cada slot es un dict con 'inicio' y 'fin' como datetime).
+    """
+
+    def __init__(
+        self,
+        message: str,
+        details: str = "",
+        conflicting_event: dict | None = None,
+        available_slots: list[dict] | None = None,
+    ):
+        super().__init__(message, details)
+        self.conflicting_event = conflicting_event
+        self.available_slots = available_slots or []
 
 
 class PermissionDeniedError(AgenteCalendarioError):

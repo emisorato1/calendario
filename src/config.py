@@ -5,6 +5,7 @@ from pydantic_settings import BaseSettings
 from pydantic import Field, field_validator
 from typing import Optional
 import json
+import re
 
 
 class Settings(BaseSettings):
@@ -46,6 +47,25 @@ class Settings(BaseSettings):
     def parse_id_list(cls, v):
         if isinstance(v, str):
             return json.loads(v)
+        return v
+
+    @field_validator(
+        "work_days_weekday_start",
+        "work_days_weekday_end",
+        "work_days_saturday_start",
+        "work_days_saturday_end",
+        mode="after",
+    )
+    @classmethod
+    def validate_time_format(cls, v: str) -> str:
+        """Valida que los horarios laborales tengan formato HH:MM válido."""
+        if not re.match(r"^\d{2}:\d{2}$", v):
+            raise ValueError(
+                f"Formato de hora inválido: '{v}'. Usar HH:MM (ej: '09:00')."
+            )
+        hours, minutes = int(v[:2]), int(v[3:])
+        if hours > 23 or minutes > 59:
+            raise ValueError(f"Hora fuera de rango: '{v}'. Debe ser 00:00-23:59.")
         return v
 
     model_config = {

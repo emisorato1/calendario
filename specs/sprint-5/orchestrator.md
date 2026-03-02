@@ -11,6 +11,10 @@ y el entry point principal del sistema.
 
 - [ ] Implementar `Orchestrator` con inyección de dependencias.
 - [ ] Implementar flujo completo de creación de evento (texto → BD + Calendar).
+- [ ] Implementar `_check_availability()` con comparación estricta de rangos (consecutivos OK).
+- [ ] Implementar `_get_available_slots()` que calcula bloques libres según horario laboral.
+- [ ] Implementar bypass de disponibilidad para eventos de prioridad alta.
+- [ ] Implementar flujo secuencial: preguntar fecha primero, hora después (con botones).
 - [ ] Implementar flujo de edición de evento.
 - [ ] Implementar flujo de eliminación de evento.
 - [ ] Implementar flujo de cierre de servicio (terminar evento).
@@ -71,22 +75,36 @@ class Orchestrator:
 | `list_contacts()`                    | Listar todos los clientes            |
 | `edit_contact(contact_id, text)`     | Parse → actualizar BD               |
 | `handle_natural_message(text, uid)`  | Detectar intención → delegar         |
+| `_check_availability(fecha, hora, duracion)` | Verificar superposición con rangos estrictos |
+| `_get_available_slots(fecha)`        | Calcular bloques horarios libres del día |
 
 ### 3. Flujo de Creación de Evento
 
 1. **Parsear** texto con `parser.parse_create_event(text)`.
-2. **Validar** datos completos. Si faltan → `Result.needs_clarification()`.
-3. **Resolver cliente** → búsqueda fuzzy por nombre/teléfono.
+2. **Validar fecha**: Si `fecha` es null → `Result.needs_clarification("¿Para qué fecha es el evento?")`.
+   NUNCA asumir "hoy" como default.
+3. **Validar hora**: Si tiene fecha pero `hora` es null → calcular slots disponibles
+   con `_get_available_slots(fecha)` y devolver `Result` con los slots para que el
+   handler muestre botones inline. Si no hay slots → pedir otro día.
+4. **Validar datos restantes**. Si faltan → `Result.needs_clarification()`.
+   Cuando faltan fecha y hora, preguntar SOLO por la fecha primero.
+5. **Resolver cliente** → búsqueda fuzzy por nombre/teléfono.
    - Si existe → usar el existente.
    - Si no existe → crear nuevo en la BD.
    - Si ambiguo → preguntar al usuario.
-4. **Verificar disponibilidad** del horario.
-   - Si ocupado → `Result.conflict()` con sugerencia.
-5. **Crear en BD** → `repo.create_evento()`.
-6. **Crear en Calendar** → con color y formato correcto.
-7. **Vincular** → actualizar BD con `google_event_id`.
-8. **Rollback** → si Calendar falla, eliminar de BD.
-9. **Retornar** → `Result.success(event)`.
+6. **Verificar disponibilidad** del horario.
+   - Si `prioridad == "alta"` → **omitir verificación** (bypass de superposición).
+   - Si ocupado → `Result.conflict()` con horarios disponibles como alternativa.
+   - Si no quedan horarios en el día → pedir seleccionar otro día.
+   - **Consecutivos permitidos**: un evento que termina a las 16:00 NO bloquea
+     el slot de 16:00 (comparación estricta `<` y `>`, no `<=` ni `>=`).
+7. **Mostrar resumen** con tipo de servicio SIEMPRE visible (nunca "Sin tipo").
+   `tipo_servicio` tiene default `"otro"` y validador que impide null.
+8. **Crear en BD** → `repo.create_evento()`.
+9. **Crear en Calendar** → con color y formato correcto.
+10. **Vincular** → actualizar BD con `google_event_id`.
+11. **Rollback** → si Calendar falla, eliminar de BD.
+12. **Retornar** → `Result.success(event)`.
 
 ### 4. Flujo de Cierre de Servicio
 
@@ -174,8 +192,18 @@ async def main():
 ## Criterios de Aceptación
 
 - [ ] Se puede crear un evento completo desde un mensaje natural.
+- [ ] Si el mensaje tiene todos los datos (cliente, tipo, fecha, hora), se extraen automáticamente sin preguntar nada.
+- [ ] Si falta la fecha, el bot pregunta solo por la fecha (nunca asume "hoy").
+- [ ] Si faltan fecha y hora, el bot pregunta primero el día. Recién después la hora.
+- [ ] Si falta la hora, el bot muestra botones con horarios disponibles (no pregunta por texto).
+- [ ] El usuario puede seleccionar 1, 2 o 3 bloques consecutivos de horarios.
+- [ ] Horarios consecutivos están permitidos: un evento que termina a las 16:00 deja disponible el slot 16:00-17:00.
+- [ ] Si hay conflicto de horario, se muestran los horarios disponibles del día.
+- [ ] Si no quedan horarios en el día, se pide elegir otro día.
+- [ ] Si el evento es de "prioridad alta" (urgente/emergencia), se permite superposición.
+- [ ] El resumen previo a guardar SIEMPRE muestra el tipo de servicio (nunca "Sin tipo").
+- [ ] Si el LLM no determina el tipo, se clasifica como "Otro" automáticamente.
 - [ ] Si faltan datos, el bot pregunta lo necesario.
-- [ ] Si hay conflicto de horario, se informa al usuario.
 - [ ] Se puede completar un evento con trabajo, monto y notas.
 - [ ] Al completar, Calendar muestra color verde y descripción actualizada.
 - [ ] Si Calendar falla, la BD hace rollback (no quedan datos inconsistentes).

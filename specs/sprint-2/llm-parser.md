@@ -16,6 +16,10 @@ fecha, hora, dirección) y devuelve datos estructurados validados con Pydantic.
 - [ ] Implementar parsing de creación de evento con extracción de entidades.
 - [ ] Implementar parsing de edición y cierre de servicio.
 - [ ] Manejar resolución de fechas relativas ("mañana", "el viernes").
+- [ ] Garantizar que `tipo_servicio` NUNCA sea null (default "otro", validador).
+- [ ] Implementar campo `prioridad` (alta/normal) en `ParsedEvent`.
+- [ ] Implementar regla: NUNCA asumir "hoy" si no hay día explícito.
+- [ ] Implementar regla: si faltan fecha y hora, preguntar SOLO por la fecha.
 
 ## Requisitos Técnicos
 
@@ -36,9 +40,13 @@ fecha, hora, dirección) y devuelve datos estructurados validados con Pydantic.
 - `Intent` (Enum): crear_evento, editar_evento, ver_eventos, eliminar_evento,
   terminar_evento, ver_contactos, editar_contacto, saludo, ayuda, desconocido.
 - `TipoServicio` (Enum): reutilizar de `db.models`.
-- `ParsedEvent`: intent, cliente, teléfono, dirección, tipo_servicio,
-  fecha, hora, duración, notas, missing_fields, clarification_question,
-  confidence.
+- `Prioridad` (Enum): normal, alta.
+- `ParsedEvent`: intent, cliente, teléfono, dirección, tipo_servicio
+  (**default "otro", NUNCA null**, validador `tipo_never_null`),
+  fecha, hora, duración, notas, prioridad, missing_fields,
+  clarification_question, confidence.
+  Properties: `needs_clarification`, `is_complete`, `has_date_but_no_time`,
+  `is_high_priority`.
 - `ParsedEdit`: intent, changes dict, clarification_question.
 - `ParsedClosure`: intent, trabajo_realizado, monto, notas_cierre,
   missing_fields, clarification_question.
@@ -48,11 +56,15 @@ fecha, hora, dirección) y devuelve datos estructurados validados con Pydantic.
 
 - `SYSTEM_PROMPT`: Contexto de negocio (empresa de servicios técnicos),
   tipos de servicio válidos, zona horaria, fecha actual.
+  **Reglas obligatorias**: nunca asumir "hoy", tipo siempre obligatorio,
+  preguntas secuenciales (fecha antes que hora), detección de prioridad.
 - `CREATE_EVENT_PROMPT`: Template para extraer datos de evento nuevo.
+  Incluye campo `prioridad` y reglas de fecha/hora.
 - `EDIT_EVENT_PROMPT`: Template para identificar cambios.
 - `CLOSURE_PROMPT`: Template para datos de cierre de servicio.
 - `INTENT_DETECTION_PROMPT`: Template para detección de intención general.
-- Incluir **few-shot examples** en cada prompt.
+- Incluir **few-shot examples** en cada prompt (con casos de datos completos,
+  falta de fecha, falta de hora, y prioridad alta).
 
 ### 3. Cliente LLM (`src/llm/client.py`)
 
@@ -95,6 +107,11 @@ Intentá de nuevo en unos segundos o usá los botones del menú (/menu)."
 - [ ] Si falta info obligatoria, devuelve pregunta de clarificación.
 - [ ] Si Groq falla, el fallback a otro LLM es transparente.
 - [ ] Si todos los LLM fallan, responde con mensaje de fallback estático.
+- [ ] `tipo_servicio` NUNCA es null. Si no se puede determinar, default "otro".
+- [ ] El campo `prioridad` se extrae correctamente ("urgente" → alta, default normal).
+- [ ] Si no hay día explícito en el mensaje, `fecha` es null (NUNCA asume "hoy").
+- [ ] Si faltan fecha y hora, `clarification_question` pregunta SOLO por la fecha.
+- [ ] Si el mensaje tiene todos los datos, `missing_fields=[]` y `clarification_question=null`.
 - [ ] Todos los tests pasan.
 
 ## Skills Referenciadas

@@ -21,7 +21,10 @@ CREATE TABLE IF NOT EXISTS eventos (
     google_event_id     TEXT    UNIQUE,
     tipo_servicio       TEXT    NOT NULL CHECK(tipo_servicio IN (
                             'instalacion','revision','mantenimiento',
-                            'reparacion','presupuesto','otro','completado'
+                            'reparacion','presupuesto','otro'
+                        )),
+    prioridad           TEXT    NOT NULL DEFAULT 'normal' CHECK(prioridad IN (
+                            'normal','alta'
                         )),
     fecha_hora          TEXT    NOT NULL,
     duracion_minutos    INTEGER NOT NULL DEFAULT 60,

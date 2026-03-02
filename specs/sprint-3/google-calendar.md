@@ -62,8 +62,8 @@ SERVICE_COLOR_MAP = {
     "reparacion": "6",     # Tangerine (naranja)
     "presupuesto": "5",    # Banana (amarillo)
     "otro": "8",           # Graphite (gris)
-    "completado": "2",     # Sage (verde)
 }
+# COMPLETED_COLOR = "2" se aplica al cambiar EstadoEvento a COMPLETADO
 ```
 
 ### 4. Templates de Descripción (`src/calendar_api/templates.py`)

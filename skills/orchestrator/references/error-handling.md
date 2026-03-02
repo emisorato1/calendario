@@ -11,6 +11,7 @@ o necesidad de interacción adicional.
 ```python
 from dataclasses import dataclass, field
 from typing import Optional, Any
+from datetime import time
 from enum import Enum
 
 
@@ -19,6 +20,16 @@ class ResultStatus(Enum):
     ERROR = "error"
     NEEDS_INPUT = "needs_input"
     CONFLICT = "conflict"
+
+
+@dataclass
+class AvailableSlot:
+    """Un bloque horario disponible."""
+    start: time
+    end: time
+
+    def __str__(self):
+        return f"{self.start.strftime('%H:%M')}-{self.end.strftime('%H:%M')}"
 
 
 @dataclass
@@ -66,10 +77,34 @@ if result.ok:
         format_event_confirmation(result.data)
     )
 elif result.needs_input:
-    await update.message.reply_text(result.question)
-    return WAITING_DESCRIPTION  # Volver a pedir datos
+    # Puede ser: falta fecha, falta hora (con slots), o faltan otros datos
+    if result.data and result.data.get("available_slots"):
+        # Mostrar botones de horarios disponibles
+        keyboard = build_time_slots_keyboard(result.data["available_slots"])
+        await update.message.reply_text(
+            result.question, reply_markup=keyboard
+        )
+        return WAITING_TIME_SLOT
+    else:
+        await update.message.reply_text(result.question)
+        return WAITING_DESCRIPTION
 elif result.status == ResultStatus.CONFLICT:
-    await update.message.reply_text(f"⚠️ {result.message}")
+    # Superposición de horario
+    if result.data and result.data.get("available_slots"):
+        # Hay horarios alternativos → mostrar botones
+        keyboard = build_time_slots_keyboard(result.data["available_slots"])
+        await update.message.reply_text(
+            f"⚠️ {result.message}", reply_markup=keyboard
+        )
+        return WAITING_TIME_SLOT
+    else:
+        # No quedan horarios → pedir otro día
+        await update.message.reply_text(
+            f"⚠️ {result.message}\n"
+            f"No quedan horarios disponibles para ese día. "
+            f"¿Querés elegir otro día?"
+        )
+        return WAITING_DATE
 else:
     await update.message.reply_text(f"❌ Error: {result.message}")
     logger.error(f"Error en crear evento: {result.errors}")
@@ -77,14 +112,19 @@ else:
 
 ## Errores Comunes y Mensajes
 
-| Error Técnico                  | Mensaje al Usuario                              |
-| ------------------------------ | ------------------------------------------------ |
-| LLM timeout                   | "No pude procesar tu mensaje. Intentá de nuevo." |
-| Calendar API error             | "Hubo un problema con el calendario. Reintentá."  |
-| DB constraint violation        | "Ya existe un cliente con ese teléfono."          |
-| Fecha pasada                   | "La fecha indicada ya pasó. Elegí otra."          |
-| Sin permisos                   | "No tenés permiso para esta acción."              |
-| Datos insuficientes            | "Necesito más información: {campos_faltantes}"   |
+| Error Técnico                  | Mensaje al Usuario                                          |
+| ------------------------------ | ----------------------------------------------------------- |
+| LLM timeout                   | "No pude procesar tu mensaje. Intentá de nuevo."            |
+| Calendar API error             | "Hubo un problema con el calendario. Reintentá."            |
+| DB constraint violation        | "Ya existe un cliente con ese teléfono."                    |
+| Fecha pasada                   | "La fecha indicada ya pasó. Elegí otra."                    |
+| Sin permisos                   | "No tenés permiso para esta acción."                        |
+| Datos insuficientes            | "Necesito más información: {campos_faltantes}"              |
+| Falta fecha (no asume hoy)    | "¿Para qué fecha es el evento?"                             |
+| Falta hora                    | (Sin texto, muestra botones de horarios disponibles)         |
+| Superposición con alternativas | "Ya hay un evento a esa hora. Horarios disponibles: [btns]" |
+| Superposición sin alternativas | "No quedan horarios para ese día. ¿Querés elegir otro día?" |
+| Prioridad alta + superposición| (Se crea el evento sin mostrar error de conflicto)           |
 
 ## Notas
 

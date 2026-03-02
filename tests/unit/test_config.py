@@ -162,3 +162,57 @@ class TestSettings:
             reset_settings()
             # No debería lanzar excepción
             validate_settings()
+
+    @patch.dict(os.environ, clear=True)
+    def test_work_hours_invalid_format_raises(self):
+        """Formato de hora inválido (no HH:MM) lanza ValidationError."""
+        from pydantic import ValidationError
+
+        env = self._make_env(WORK_DAYS_WEEKDAY_START="abc")
+        with patch.dict(os.environ, env):
+            from src.config import reset_settings, get_settings
+
+            reset_settings()
+            with pytest.raises(ValidationError, match="Formato de hora inválido"):
+                get_settings()
+
+    @patch.dict(os.environ, clear=True)
+    def test_work_hours_out_of_range_raises(self):
+        """Hora fuera de rango (25:00) lanza ValidationError."""
+        from pydantic import ValidationError
+
+        env = self._make_env(WORK_DAYS_WEEKDAY_START="25:00")
+        with patch.dict(os.environ, env):
+            from src.config import reset_settings, get_settings
+
+            reset_settings()
+            with pytest.raises(ValidationError, match="Hora fuera de rango"):
+                get_settings()
+
+    @patch.dict(os.environ, clear=True)
+    def test_work_hours_invalid_minutes_raises(self):
+        """Minutos fuera de rango (12:99) lanza ValidationError."""
+        from pydantic import ValidationError
+
+        env = self._make_env(WORK_DAYS_SATURDAY_END="12:99")
+        with patch.dict(os.environ, env):
+            from src.config import reset_settings, get_settings
+
+            reset_settings()
+            with pytest.raises(ValidationError, match="Hora fuera de rango"):
+                get_settings()
+
+    @patch.dict(os.environ, clear=True)
+    def test_work_hours_valid_boundary_values(self):
+        """Valores límite válidos (00:00, 23:59) se aceptan."""
+        env = self._make_env(
+            WORK_DAYS_WEEKDAY_START="00:00",
+            WORK_DAYS_WEEKDAY_END="23:59",
+        )
+        with patch.dict(os.environ, env):
+            from src.config import get_settings, reset_settings
+
+            reset_settings()
+            settings = get_settings()
+            assert settings.work_days_weekday_start == "00:00"
+            assert settings.work_days_weekday_end == "23:59"

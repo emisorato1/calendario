@@ -7,6 +7,7 @@ from src.db.models import (
     Cliente,
     EstadoEvento,
     Evento,
+    Prioridad,
     Rol,
     TipoServicio,
     UsuarioAutorizado,
@@ -24,8 +25,7 @@ class TestEnums:
         assert TipoServicio.REPARACION == "reparacion"
         assert TipoServicio.PRESUPUESTO == "presupuesto"
         assert TipoServicio.OTRO == "otro"
-        assert TipoServicio.COMPLETADO == "completado"
-        assert len(TipoServicio) == 7
+        assert len(TipoServicio) == 6
 
     def test_estado_evento_values(self):
         """EstadoEvento tiene los valores correctos."""
@@ -39,6 +39,12 @@ class TestEnums:
         assert Rol.ADMIN == "admin"
         assert Rol.EDITOR == "editor"
         assert len(Rol) == 2
+
+    def test_prioridad_values(self):
+        """Prioridad tiene los valores correctos."""
+        assert Prioridad.NORMAL == "normal"
+        assert Prioridad.ALTA == "alta"
+        assert len(Prioridad) == 2
 
 
 class TestCliente:
@@ -73,6 +79,11 @@ class TestCliente:
         with pytest.raises(Exception):
             Cliente()
 
+    def test_cliente_nombre_min_length(self):
+        """El nombre no puede ser cadena vacía."""
+        with pytest.raises(Exception):
+            Cliente(nombre="")
+
 
 class TestEvento:
     """Tests para el modelo Evento."""
@@ -86,9 +97,30 @@ class TestEvento:
         )
         assert evento.cliente_id == 1
         assert evento.tipo_servicio == TipoServicio.INSTALACION
+        assert evento.prioridad == Prioridad.NORMAL
         assert evento.duracion_minutos == 60
         assert evento.estado == EstadoEvento.PENDIENTE
         assert evento.id is None
+
+    def test_evento_prioridad_alta(self):
+        """Se puede crear un evento con prioridad alta."""
+        evento = Evento(
+            cliente_id=1,
+            tipo_servicio=TipoServicio.REPARACION,
+            prioridad=Prioridad.ALTA,
+            fecha_hora=datetime(2026, 3, 15, 10, 0),
+        )
+        assert evento.prioridad == Prioridad.ALTA
+
+    def test_evento_prioridad_from_string(self):
+        """Se puede crear un evento con prioridad como string."""
+        evento = Evento(
+            cliente_id=1,
+            tipo_servicio=TipoServicio.REPARACION,
+            prioridad="alta",
+            fecha_hora=datetime(2026, 3, 15, 10, 0),
+        )
+        assert evento.prioridad == Prioridad.ALTA
 
     def test_evento_duracion_constraints(self):
         """La duración tiene restricciones de min/max."""
@@ -171,6 +203,26 @@ class TestEvento:
             fecha_hora=datetime(2026, 3, 15, 10, 0),
         )
         assert evento.tipo_servicio == TipoServicio.INSTALACION
+
+    def test_evento_monto_cobrado_non_negative(self):
+        """monto_cobrado no puede ser negativo."""
+        with pytest.raises(Exception):
+            Evento(
+                cliente_id=1,
+                tipo_servicio=TipoServicio.INSTALACION,
+                fecha_hora=datetime(2026, 3, 15, 10, 0),
+                monto_cobrado=-100.0,
+            )
+
+    def test_evento_monto_cobrado_zero_is_valid(self):
+        """monto_cobrado=0 es válido (ej: garantía)."""
+        evento = Evento(
+            cliente_id=1,
+            tipo_servicio=TipoServicio.INSTALACION,
+            fecha_hora=datetime(2026, 3, 15, 10, 0),
+            monto_cobrado=0.0,
+        )
+        assert evento.monto_cobrado == 0.0
 
 
 class TestUsuarioAutorizado:

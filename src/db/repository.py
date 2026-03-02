@@ -24,6 +24,29 @@ logger = logging.getLogger(__name__)
 class Repository:
     """Repositorio unificado de acceso a datos."""
 
+    # Whitelists de campos actualizables (previene SQL injection vía kwargs keys)
+    _CLIENTE_UPDATABLE = frozenset({"nombre", "telefono", "direccion", "notas"})
+    _EVENTO_UPDATABLE = frozenset(
+        {
+            "google_event_id",
+            "tipo_servicio",
+            "prioridad",
+            "fecha_hora",
+            "duracion_minutos",
+            "estado",
+            "notas",
+            "fotos",
+        }
+    )
+    _CLOSURE_UPDATABLE = frozenset(
+        {
+            "trabajo_realizado",
+            "monto_cobrado",
+            "notas_cierre",
+            "fotos",
+        }
+    )
+
     def __init__(self, db: aiosqlite.Connection, cache_ttl: int = 300):
         self._db = db
         self._cache = TTLCache(ttl_seconds=cache_ttl)
@@ -82,6 +105,9 @@ class Repository:
         """Actualiza campos de un cliente."""
         if not kwargs:
             return False
+        invalid = set(kwargs) - self._CLIENTE_UPDATABLE
+        if invalid:
+            raise ValueError(f"Campos no permitidos para cliente: {invalid}")
         sets = ", ".join(f"{k} = ?" for k in kwargs)
         values = list(kwargs.values()) + [cliente_id]
         cursor = await self._db.execute(
@@ -133,13 +159,14 @@ class Repository:
         try:
             cursor = await self._db.execute(
                 """INSERT INTO eventos
-                (cliente_id, google_event_id, tipo_servicio, fecha_hora,
-                 duracion_minutos, estado, notas, fotos)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (cliente_id, google_event_id, tipo_servicio, prioridad,
+                 fecha_hora, duracion_minutos, estado, notas, fotos)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     evento.cliente_id,
                     evento.google_event_id,
                     evento.tipo_servicio.value,
+                    evento.prioridad.value,
                     evento.fecha_hora.isoformat(),
                     evento.duracion_minutos,
                     evento.estado.value,
@@ -208,11 +235,16 @@ class Repository:
         """Actualiza campos de un evento."""
         if not kwargs:
             return False
+        invalid = set(kwargs) - self._EVENTO_UPDATABLE
+        if invalid:
+            raise ValueError(f"Campos no permitidos para evento: {invalid}")
         # Serializar campos especiales
         if "tipo_servicio" in kwargs and hasattr(kwargs["tipo_servicio"], "value"):
             kwargs["tipo_servicio"] = kwargs["tipo_servicio"].value
         if "estado" in kwargs and hasattr(kwargs["estado"], "value"):
             kwargs["estado"] = kwargs["estado"].value
+        if "prioridad" in kwargs and hasattr(kwargs["prioridad"], "value"):
+            kwargs["prioridad"] = kwargs["prioridad"].value
         if "fecha_hora" in kwargs and isinstance(kwargs["fecha_hora"], datetime):
             kwargs["fecha_hora"] = kwargs["fecha_hora"].isoformat()
         if "fotos" in kwargs and isinstance(kwargs["fotos"], list):
@@ -231,6 +263,9 @@ class Repository:
     async def complete_evento(self, evento_id: int, **closure_data) -> bool:
         """Marca un evento como completado con datos de cierre."""
         if closure_data:
+            invalid = set(closure_data) - self._CLOSURE_UPDATABLE
+            if invalid:
+                raise ValueError(f"Campos no permitidos para cierre: {invalid}")
             sets = ", ".join(f"{k} = ?" for k in closure_data)
             values = list(closure_data.values()) + [evento_id]
             cursor = await self._db.execute(

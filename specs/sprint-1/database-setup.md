@@ -42,7 +42,7 @@ búsqueda fuzzy de clientes y caché LRU con TTL.
 ### 2. Modelos (`src/db/models.py`)
 
 - `TipoServicio` (Enum): instalacion, revision, mantenimiento, reparacion,
-  presupuesto, otro, completado.
+  presupuesto, otro.
 - `EstadoEvento` (Enum): pendiente, completado, cancelado.
 - `Rol` (Enum): admin, editor.
 - `Cliente` (BaseModel): con validadores.

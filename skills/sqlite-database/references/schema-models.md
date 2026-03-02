@@ -23,7 +23,10 @@ CREATE TABLE IF NOT EXISTS eventos (
     google_event_id     TEXT    UNIQUE,
     tipo_servicio       TEXT    NOT NULL CHECK(tipo_servicio IN (
                             'instalacion','revision','mantenimiento',
-                            'reparacion','presupuesto','otro','completado'
+                            'reparacion','presupuesto','otro'
+                        )),
+    prioridad           TEXT    NOT NULL DEFAULT 'normal' CHECK(prioridad IN (
+                            'normal','alta'
                         )),
     fecha_hora          TEXT    NOT NULL,
     duracion_minutos    INTEGER NOT NULL DEFAULT 60,
@@ -71,7 +74,11 @@ class TipoServicio(str, Enum):
     REPARACION = "reparacion"
     PRESUPUESTO = "presupuesto"
     OTRO = "otro"
-    COMPLETADO = "completado"
+
+
+class Prioridad(str, Enum):
+    NORMAL = "normal"
+    ALTA = "alta"
 
 
 class EstadoEvento(str, Enum):
@@ -87,7 +94,7 @@ class Rol(str, Enum):
 
 class Cliente(BaseModel):
     id: Optional[int] = None
-    nombre: str
+    nombre: str = Field(min_length=1)  # No permite nombres vacíos
     telefono: Optional[str] = None
     direccion: Optional[str] = None
     notas: Optional[str] = None
@@ -100,12 +107,13 @@ class Evento(BaseModel):
     cliente_id: int
     google_event_id: Optional[str] = None
     tipo_servicio: TipoServicio
+    prioridad: Prioridad = Prioridad.NORMAL
     fecha_hora: datetime
     duracion_minutos: int = Field(default=60, ge=15, le=480)
     estado: EstadoEvento = EstadoEvento.PENDIENTE
     notas: Optional[str] = None
     trabajo_realizado: Optional[str] = None
-    monto_cobrado: Optional[float] = None
+    monto_cobrado: Optional[float] = Field(default=None, ge=0)  # No permite montos negativos
     notas_cierre: Optional[str] = None
     fotos: Optional[list[str]] = None
     created_at: Optional[datetime] = None
@@ -118,3 +126,9 @@ class Evento(BaseModel):
 - `fotos` se serializa como JSON array de strings.
 - Foreign keys están habilitadas explícitamente con `PRAGMA foreign_keys=ON`.
 - Los índices cubren las consultas más frecuentes (listar pendientes, buscar por fecha).
+- `Cliente.nombre` requiere `min_length=1` — no se permiten nombres vacíos.
+- `Evento.monto_cobrado` requiere `ge=0` — no se permiten montos negativos.
+- Los campos de horario laboral en `Settings` (`work_days_*`) se validan con formato `HH:MM` y rango `00:00-23:59`.
+- `TipoServicio` NO incluye "completado" — el estado de completitud se maneja
+  exclusivamente con `EstadoEvento.COMPLETADO`. Esto evita la ambigüedad entre
+  un *tipo de servicio* y un *estado del evento*.

@@ -66,15 +66,15 @@ async def handler(update, context):
 
 Un `ConversationHandler` por acción:
 
-| Handler                              | Entry Point            | Estados                    |
-| ------------------------------------ | ---------------------- | -------------------------- |
-| `crear_evento.py`                    | Botón "📝 Crear"       | DESCRIPTION → CONFIRM      |
-| `editar_evento.py`                   | Botón "✏️ Editar"      | SELECT → CHANGES → CONFIRM |
-| `ver_eventos.py`                     | Botón "📋 Ver"         | (sin estados, inmediato)   |
-| `eliminar_evento.py`                 | Botón "🗑️ Eliminar"   | SELECT → CONFIRM           |
+| Handler                              | Entry Point            | Estados                              |
+| ------------------------------------ | ---------------------- | ------------------------------------ |
+| `crear_evento.py`                    | Botón "📝 Crear"       | DESCRIPTION → DATE → TIME_SLOT → CONFIRM |
+| `editar_evento.py`                   | Botón "✏️ Editar"      | SELECT → CHANGES → CONFIRM           |
+| `ver_eventos.py`                     | Botón "📋 Ver"         | (sin estados, inmediato)             |
+| `eliminar_evento.py`                 | Botón "🗑️ Eliminar"   | SELECT → CONFIRM                     |
 | `terminar_evento.py`                 | Botón "✅ Terminar"    | SELECT → CLOSURE → PHOTOS → CONFIRM |
-| `contactos.py` (ver)                 | Botón "👥 Ver"         | (sin estados, inmediato)   |
-| `contactos.py` (editar)             | Botón "✏️ Editar"      | SELECT → FIELD → VALUE → CONFIRM |
+| `contactos.py` (ver)                 | Botón "👥 Ver"         | (sin estados, inmediato)             |
+| `contactos.py` (editar)             | Botón "✏️ Editar"      | SELECT → FIELD → VALUE → CONFIRM     |
 
 ### 5. Handler Natural (`src/bot/handlers/natural.py`)
 
@@ -98,6 +98,9 @@ Un `ConversationHandler` por acción:
 - `build_contact_list_keyboard(contacts)`: Lista de contactos seleccionables.
 - `build_confirmation_keyboard()`: Botones Confirmar / Cancelar.
 - `build_field_selection_keyboard()`: Selección de campo a editar.
+- `build_time_slots_keyboard(slots, selected)`: Botones de horarios disponibles
+  del día. Soporta multi-selección (1-3 bloques consecutivos). Los slots ya
+  seleccionados se muestran con un check mark.
 
 ### 8. Constantes (`src/bot/constants.py`)
 
@@ -121,6 +124,10 @@ Un `ConversationHandler` por acción:
 - [ ] Las respuestas muestran emojis y formato prolijo.
 - [ ] Conversaciones abandonadas expiran a los 5 minutos.
 - [ ] Se pueden enviar fotos en el flujo de cierre.
+- [ ] El flujo de crear evento tiene estados DESCRIPTION → DATE → TIME_SLOT → CONFIRM.
+- [ ] Cuando falta la hora, se muestran botones inline con horarios disponibles.
+- [ ] El usuario puede seleccionar 1, 2 o 3 bloques horarios consecutivos.
+- [ ] El resumen de confirmación SIEMPRE muestra el tipo de servicio (nunca "Sin tipo").
 - [ ] Todos los tests pasan.
 
 ## Skills Referenciadas

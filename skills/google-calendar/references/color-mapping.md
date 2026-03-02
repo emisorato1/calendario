@@ -7,7 +7,7 @@ Google Calendar usa IDs numéricos para los colores de eventos:
 | Color ID | Color Visual      | Tipo de Servicio Asignado       |
 | -------- | ----------------- | ------------------------------- |
 | `1`      | Lavender          | —                               |
-| `2`      | Sage (Verde)      | ✅ **Servicio Completado**      |
+| `2`      | Sage (Verde)      | ✅ **Evento Completado** (vía `EstadoEvento`, no `TipoServicio`) |
 | `3`      | Grape             | —                               |
 | `4`      | Flamingo          | —                               |
 | `5`      | Banana (Amarillo) | 🟡 **Revisión / Presupuesto**  |
@@ -30,10 +30,10 @@ SERVICE_COLOR_MAP: dict[str, str] = {
     TipoServicio.REPARACION.value: "6",     # Tangerine (naranja)
     TipoServicio.PRESUPUESTO.value: "5",    # Banana (amarillo)
     TipoServicio.OTRO.value: "8",           # Graphite (gris)
-    TipoServicio.COMPLETADO.value: "2",     # Sage (verde)
 }
 
-COMPLETED_COLOR = "2"  # Verde para servicios completados
+# Color para eventos con EstadoEvento.COMPLETADO (aplicado al completar, no por tipo)
+COMPLETED_COLOR = "2"  # Sage (verde)
 
 
 def get_color_for_service(tipo: str) -> str:
@@ -43,6 +43,6 @@ def get_color_for_service(tipo: str) -> str:
 
 ## Notas
 
-- Al completar un evento, siempre se cambia el color a verde (`2`).
+- Al completar un evento (cambiar `EstadoEvento` a `COMPLETADO`), se aplica `COMPLETED_COLOR` ("2", verde).
 - El mapa de colores es centralizado para mantener consistencia.
 - Si se agregan nuevos tipos de servicio, basta con agregar al dict.

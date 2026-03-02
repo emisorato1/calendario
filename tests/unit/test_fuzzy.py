@@ -8,52 +8,7 @@ from src.db.models import Cliente
 from src.db.repository import Repository
 
 
-@pytest.fixture
-async def db_connection():
-    """Crea una conexión a BD en memoria con schema inicializado."""
-    db = await aiosqlite.connect(":memory:")
-    db.row_factory = aiosqlite.Row
-    await db.execute("PRAGMA foreign_keys=ON")
-
-    await db.executescript("""
-        CREATE TABLE IF NOT EXISTS clientes (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            nombre      TEXT    NOT NULL,
-            telefono    TEXT    UNIQUE,
-            direccion   TEXT,
-            notas       TEXT,
-            created_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
-            updated_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
-        );
-
-        CREATE TABLE IF NOT EXISTS eventos (
-            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-            cliente_id          INTEGER NOT NULL REFERENCES clientes(id),
-            google_event_id     TEXT    UNIQUE,
-            tipo_servicio       TEXT    NOT NULL CHECK(tipo_servicio IN (
-                                    'instalacion','revision','mantenimiento',
-                                    'reparacion','presupuesto','otro','completado'
-                                )),
-            fecha_hora          TEXT    NOT NULL,
-            duracion_minutos    INTEGER NOT NULL DEFAULT 60,
-            estado              TEXT    NOT NULL DEFAULT 'pendiente' CHECK(estado IN (
-                                    'pendiente','completado','cancelado'
-                                )),
-            notas               TEXT,
-            trabajo_realizado   TEXT,
-            monto_cobrado       REAL,
-            notas_cierre        TEXT,
-            fotos               TEXT,
-            created_at          TEXT   NOT NULL DEFAULT (datetime('now', 'localtime')),
-            updated_at          TEXT   NOT NULL DEFAULT (datetime('now', 'localtime'))
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_clientes_nombre ON clientes(nombre);
-    """)
-    await db.commit()
-
-    yield db
-    await db.close()
+# db_connection fixture está en conftest.py
 
 
 @pytest.fixture

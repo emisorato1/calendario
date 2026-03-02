@@ -16,7 +16,13 @@ class TipoServicio(str, Enum):
     REPARACION = "reparacion"
     PRESUPUESTO = "presupuesto"
     OTRO = "otro"
-    COMPLETADO = "completado"
+
+
+class Prioridad(str, Enum):
+    """Prioridad del evento. Alta permite bypass de solapamiento."""
+
+    NORMAL = "normal"
+    ALTA = "alta"
 
 
 class EstadoEvento(str, Enum):
@@ -38,7 +44,7 @@ class Cliente(BaseModel):
     """Modelo de cliente."""
 
     id: Optional[int] = None
-    nombre: str
+    nombre: str = Field(..., min_length=1)
     telefono: Optional[str] = None
     direccion: Optional[str] = None
     notas: Optional[str] = None
@@ -53,12 +59,13 @@ class Evento(BaseModel):
     cliente_id: int
     google_event_id: Optional[str] = None
     tipo_servicio: TipoServicio
+    prioridad: Prioridad = Prioridad.NORMAL
     fecha_hora: datetime
     duracion_minutos: int = Field(default=60, ge=15, le=480)
     estado: EstadoEvento = EstadoEvento.PENDIENTE
     notas: Optional[str] = None
     trabajo_realizado: Optional[str] = None
-    monto_cobrado: Optional[float] = None
+    monto_cobrado: Optional[float] = Field(default=None, ge=0)
     notas_cierre: Optional[str] = None
     fotos: Optional[list[str]] = None
     created_at: Optional[datetime] = None
@@ -74,7 +81,6 @@ class Evento(BaseModel):
             TipoServicio.REPARACION: "⚡",
             TipoServicio.PRESUPUESTO: "📋",
             TipoServicio.OTRO: "📌",
-            TipoServicio.COMPLETADO: "✅",
         }
         return emojis.get(self.tipo_servicio, "📌")
 

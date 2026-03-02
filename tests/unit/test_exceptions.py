@@ -105,3 +105,28 @@ class TestExceptionHierarchy:
         assert isinstance(err, Exception)
         assert isinstance(err, AgenteCalendarioError)
         assert isinstance(err, ScheduleConflictError)
+
+    def test_schedule_conflict_with_slots(self):
+        """ScheduleConflictError puede transportar datos de conflicto y slots."""
+        conflicting = {"id": 5, "tipo": "instalacion", "hora": "15:00"}
+        slots = [
+            {"inicio": "16:00", "fin": "17:00"},
+            {"inicio": "17:00", "fin": "18:00"},
+        ]
+        err = ScheduleConflictError(
+            "Ya hay un evento a las 15:00",
+            details="Evento #5 ocupa 15:00-16:00",
+            conflicting_event=conflicting,
+            available_slots=slots,
+        )
+        assert err.message == "Ya hay un evento a las 15:00"
+        assert err.details == "Evento #5 ocupa 15:00-16:00"
+        assert err.conflicting_event == conflicting
+        assert len(err.available_slots) == 2
+        assert err.available_slots[0]["inicio"] == "16:00"
+
+    def test_schedule_conflict_defaults(self):
+        """ScheduleConflictError tiene defaults razonables para los nuevos campos."""
+        err = ScheduleConflictError("conflicto")
+        assert err.conflicting_event is None
+        assert err.available_slots == []
