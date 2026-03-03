@@ -89,7 +89,7 @@ class Orchestrator:
                 return Result(
                     status=ResultStatus.NEEDS_INPUT,
                     question="Elegí un horario disponible:",
-                    data={"available_slots": slots},
+                    data={"available_slots": slots, "parsed": parsed},
                 )
 
             # 4. Si faltan otros datos → preguntar
@@ -167,6 +167,101 @@ class Orchestrator:
             logger.error("Error en create_event_from_text: %s", e, exc_info=True)
             return Result.error(
                 message="No pude procesar tu mensaje. Intentá de nuevo."
+            )
+
+    async def confirm_slot_selection(
+        self,
+        parsed,
+        selected_time: str,
+        duration_minutes: int,
+        user_id: int,
+    ) -> Result:
+        """Confirma la selección de horarios y prepara el evento.
+
+        Se usa cuando el usuario ya eligió un slot de la lista de horarios
+        disponibles. Recibe el ParsedEvent ya parseado (con fecha) y la hora
+        seleccionada, sin necesidad de volver a parsear con el LLM.
+
+        Args:
+            parsed: ParsedEvent con los datos ya extraídos (fecha incluida).
+            selected_time: Hora seleccionada en formato "HH:MM".
+            duration_minutes: Duración en minutos (número de slots * 60).
+            user_id: ID de Telegram del usuario.
+
+        Returns:
+            Result con el evento listo para confirmar.
+        """
+        try:
+            time_obj = time.fromisoformat(selected_time)
+
+            duracion = duration_minutes
+
+            date_ok, date_msg = _validate_event_date(parsed.fecha)
+            if not date_ok:
+                return Result.error(message=date_msg)
+
+            dt_ok, dt_msg = _validate_event_datetime(parsed.fecha, time_obj)
+            if not dt_ok:
+                return Result.error(message=dt_msg)
+
+            wh_ok, wh_msg = _validate_work_hours(
+                time_obj,
+                duracion,
+                parsed.fecha.weekday(),
+                self.settings,
+            )
+            if not wh_ok:
+                return Result.error(message=wh_msg)
+
+            cliente = await self._resolve_cliente(parsed)
+
+            if not parsed.is_high_priority:
+                conflict = await self._check_availability(
+                    parsed.fecha, time_obj, duracion
+                )
+                if conflict:
+                    slots = await self._get_available_slots(parsed.fecha)
+                    if not slots:
+                        return Result(
+                            status=ResultStatus.CONFLICT,
+                            message=(
+                                f"Ya hay un evento agendado a esa hora ({conflict}). "
+                                f"No quedan horarios disponibles para ese día. "
+                                f"¿Querés elegir otro día?"
+                            ),
+                        )
+                    return Result(
+                        status=ResultStatus.CONFLICT,
+                        message=(
+                            f"Ya hay un evento agendado a esa hora ({conflict}). "
+                            f"Estos son los horarios disponibles:"
+                        ),
+                        data={"available_slots": slots},
+                    )
+
+            fecha_hora = datetime.combine(parsed.fecha, time_obj, tzinfo=TIMEZONE)
+            evento_model = Evento(
+                cliente_id=cliente.id,
+                tipo_servicio=parsed.tipo_servicio,
+                prioridad=parsed.prioridad,
+                fecha_hora=fecha_hora,
+                duracion_minutos=duracion,
+                notas=parsed.notas,
+            )
+
+            return Result.success(
+                data={
+                    "evento": evento_model,
+                    "cliente": cliente,
+                    "parsed": parsed,
+                },
+                message="Evento listo para confirmar.",
+            )
+
+        except Exception as e:
+            logger.error("Error en confirm_slot_selection: %s", e, exc_info=True)
+            return Result.error(
+                message="No pude confirmar la selección. Intentá de nuevo."
             )
 
     async def save_confirmed_event(

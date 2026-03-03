@@ -221,28 +221,37 @@ async def receive_time_slot(
             await query.edit_message_text("Seleccioná al menos un horario.")
             return WAITING_TIME_SLOT
 
-        # Calcular hora de inicio y duración
+        orchestrator = context.bot_data["orchestrator"]
+
+        # Obtener el ParsedEvent del partial_result (contiene la fecha ya parseada)
+        partial = context.user_data.get("partial_result")
+        if not partial or not partial.data:
+            logger.warning("receive_time_slot: no hay partial_result con datos")
+            await query.edit_message_text("Sesión expirada. Iniciá de nuevo.")
+            return ConversationHandler.END
+
+        parsed = partial.data.get("parsed")
+        if not parsed:
+            logger.warning("receive_time_slot: partial_result no tiene parsed")
+            await query.edit_message_text("Sesión expirada. Iniciá de nuevo.")
+            return ConversationHandler.END
+
+        # Calcular hora de inicio y duración desde los slots seleccionados
         start_time = selected[0].split("-")[0]  # "15:00"
         duration = len(selected) * 60
 
-        # Re-procesar con hora y duración
-        orchestrator = context.bot_data["orchestrator"]
-        original = context.user_data.get("original_text", "")
-        combined = f"{original} a las {start_time}, duración {duration} minutos"
-
-        result = await orchestrator.create_event_from_text(
-            text=combined,
+        # Usar el nuevo método que no re-parsea con el LLM
+        result = await orchestrator.confirm_slot_selection(
+            parsed=parsed,
+            selected_time=start_time,
+            duration_minutes=duration,
             user_id=update.effective_user.id,
         )
 
         logger.debug(
-            "receive_time_slot confirm: status=%s, message=%s, "
-            "has_data=%s, question=%s, combined='%s'",
+            "receive_time_slot confirm: status=%s, message=%s",
             result.status,
             result.message,
-            result.data is not None,
-            result.question,
-            combined,
         )
 
         if result.ok:
@@ -257,8 +266,6 @@ async def receive_time_slot(
             return WAITING_CONFIRMATION
 
         if result.needs_input:
-            # El LLM no extrajo bien la hora/fecha del texto combinado.
-            # Mostrar nuevos slots si los hay, o pedir fecha de nuevo.
             slots = result.data.get("available_slots") if result.data else None
             if slots:
                 context.user_data["partial_result"] = result
@@ -269,13 +276,6 @@ async def receive_time_slot(
                     reply_markup=keyboard,
                 )
                 return WAITING_TIME_SLOT
-            # Sin slots → pedir fecha de nuevo
-            logger.warning(
-                "receive_time_slot: re-parse devolvió needs_input sin slots. "
-                "question=%s, combined='%s'",
-                result.question,
-                combined,
-            )
             await query.edit_message_text(
                 result.question or Messages.ASK_DATE,
             )

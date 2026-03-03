@@ -268,3 +268,10 @@ pkill -f "src.main"
 ```bash
 grep ERROR logs/agente.log | tail -20
 ```
+
+
+
+# Restart bot
+$ kill 248588 2>/dev/null; sleep 2; nohup .venv/bin/python -m src.main > /dev/null 2>&1 & sleep 3 && ps aux | grep "[p]ython -m src.main"
+emisora+  257863  0.0  0.0   7436  3684 ?        Ss   23:10   0:00 /bin/bash -c kill 248588 2>/dev/null; sleep 2; nohup .venv/bin/python -m src.main > /dev/null 2>&1 & sleep 3 && ps aux | grep "[p]ython -m src.main"
+emisora+  257878 29.5  0.4 248096 78992 ?        Sl   23:10   0:00 .venv/bin/python -m src.mai
