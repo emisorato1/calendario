@@ -22,6 +22,7 @@ from src.bot.keyboards import (
 )
 from src.bot.middleware import require_role
 from src.core.result import ResultStatus
+from src.bot.handlers.start import MENU_BUTTON_FILTER, menu_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -32,33 +33,30 @@ WAITING_TIME_SLOT = States.CREAR_TIME_SLOT
 WAITING_CONFIRMATION = States.CREAR_CONFIRMATION
 
 
-@require_role("admin")
-async def start_crear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Inicia el flujo de creación de evento."""
-    query = update.callback_query
-    await query.answer()
-
-    # Guardar chat_id para timeout handler
-    context.user_data["chat_id"] = update.effective_chat.id
-
-    await query.edit_message_text(
-        Messages.DESCRIBE_EVENT,
-        parse_mode="Markdown",
-    )
-    return WAITING_DESCRIPTION
+# ── Lógica compartida ─────────────────────────────────────────────────────────
 
 
-async def receive_description(
-    update: Update,
+async def _process_description(
+    text: str,
     context: ContextTypes.DEFAULT_TYPE,
+    reply_func,
 ) -> int:
-    """Recibe la descripción en lenguaje natural y la parsea."""
+    """Lógica compartida para procesar una descripción de evento.
+
+    Se usa tanto desde receive_description (texto directo) como desde
+    start_crear (texto pre-cargado por el handler natural).
+
+    Args:
+        text: Texto con la descripción del evento.
+        context: Contexto de la conversación.
+        reply_func: Función para enviar la respuesta (reply_text o edit_message_text).
+    """
     orchestrator = context.bot_data["orchestrator"]
-    context.user_data["original_text"] = update.message.text
+    context.user_data["original_text"] = text
 
     result = await orchestrator.create_event_from_text(
-        text=update.message.text,
-        user_id=update.effective_user.id,
+        text=text,
+        user_id=0,  # No se usa en create_event_from_text actualmente
     )
 
     if result.ok:
@@ -66,7 +64,7 @@ async def receive_description(
         context.user_data["pending_event"] = result.data
         confirmation = format_event_confirmation(result.data)
         keyboard = build_confirmation_keyboard()
-        await update.message.reply_text(
+        await reply_func(
             confirmation,
             reply_markup=keyboard,
             parse_mode="Markdown",
@@ -80,7 +78,7 @@ async def receive_description(
             context.user_data["partial_result"] = result
             context.user_data["selected_slots"] = []
             keyboard = build_time_slots_keyboard(slots)
-            await update.message.reply_text(
+            await reply_func(
                 result.question or Messages.ASK_TIME_SLOT,
                 reply_markup=keyboard,
             )
@@ -88,7 +86,7 @@ async def receive_description(
         else:
             # Falta fecha u otros datos → preguntar
             context.user_data["partial_result"] = result
-            await update.message.reply_text(result.question or Messages.ASK_DATE)
+            await reply_func(result.question or Messages.ASK_DATE)
             question = result.question or ""
             return WAITING_DATE if "fecha" in question.lower() else WAITING_DESCRIPTION
 
@@ -98,19 +96,66 @@ async def receive_description(
             context.user_data["partial_result"] = result
             context.user_data["selected_slots"] = []
             keyboard = build_time_slots_keyboard(slots)
-            await update.message.reply_text(
+            await reply_func(
                 f"⚠️ {result.message}",
                 reply_markup=keyboard,
             )
             return WAITING_TIME_SLOT
         else:
             context.user_data["partial_result"] = result
-            await update.message.reply_text(f"⚠️ {result.message}")
+            await reply_func(f"⚠️ {result.message}")
             return WAITING_DATE
 
     # Error
-    await update.message.reply_text(f"❌ Error: {result.message}")
+    await reply_func(f"❌ Error: {result.message}")
     return ConversationHandler.END
+
+
+# ── Handlers ──────────────────────────────────────────────────────────────────
+
+
+@require_role("admin")
+async def start_crear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Inicia el flujo de creación de evento.
+
+    Si hay texto pre-cargado en user_data['natural_create_text'] (proveniente
+    del handler natural), lo procesa directamente sin pedir descripción.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    # Guardar chat_id para timeout handler
+    context.user_data["chat_id"] = update.effective_chat.id
+
+    # ¿Viene con texto pre-cargado desde el handler natural?
+    natural_text = context.user_data.pop("natural_create_text", None)
+    if natural_text:
+        # Procesar directamente como si el usuario hubiera escrito la descripción
+        return await _process_description(
+            text=natural_text,
+            context=context,
+            reply_func=query.edit_message_text,
+        )
+
+    await query.edit_message_text(
+        Messages.DESCRIBE_EVENT,
+        parse_mode="Markdown",
+    )
+    return WAITING_DESCRIPTION
+
+
+async def receive_description(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> int:
+    """Recibe la descripción en lenguaje natural y la parsea."""
+    context.user_data["original_text"] = update.message.text
+
+    return await _process_description(
+        text=update.message.text,
+        context=context,
+        reply_func=update.message.reply_text,
+    )
 
 
 async def receive_date(
@@ -190,6 +235,16 @@ async def receive_time_slot(
             user_id=update.effective_user.id,
         )
 
+        logger.debug(
+            "receive_time_slot confirm: status=%s, message=%s, "
+            "has_data=%s, question=%s, combined='%s'",
+            result.status,
+            result.message,
+            result.data is not None,
+            result.question,
+            combined,
+        )
+
         if result.ok:
             context.user_data["pending_event"] = result.data
             confirmation = format_event_confirmation(result.data)
@@ -201,6 +256,46 @@ async def receive_time_slot(
             )
             return WAITING_CONFIRMATION
 
+        if result.needs_input:
+            # El LLM no extrajo bien la hora/fecha del texto combinado.
+            # Mostrar nuevos slots si los hay, o pedir fecha de nuevo.
+            slots = result.data.get("available_slots") if result.data else None
+            if slots:
+                context.user_data["partial_result"] = result
+                context.user_data["selected_slots"] = []
+                keyboard = build_time_slots_keyboard(slots)
+                await query.edit_message_text(
+                    result.question or Messages.ASK_TIME_SLOT,
+                    reply_markup=keyboard,
+                )
+                return WAITING_TIME_SLOT
+            # Sin slots → pedir fecha de nuevo
+            logger.warning(
+                "receive_time_slot: re-parse devolvió needs_input sin slots. "
+                "question=%s, combined='%s'",
+                result.question,
+                combined,
+            )
+            await query.edit_message_text(
+                result.question or Messages.ASK_DATE,
+            )
+            return WAITING_DATE
+
+        if result.status == ResultStatus.CONFLICT:
+            slots = result.data.get("available_slots") if result.data else None
+            if slots:
+                context.user_data["partial_result"] = result
+                context.user_data["selected_slots"] = []
+                keyboard = build_time_slots_keyboard(slots)
+                await query.edit_message_text(
+                    f"⚠️ {result.message}",
+                    reply_markup=keyboard,
+                )
+                return WAITING_TIME_SLOT
+            await query.edit_message_text(f"⚠️ {result.message}")
+            return WAITING_DATE
+
+        # Error genuino
         await query.edit_message_text(f"❌ {result.message or 'Error inesperado'}")
         return ConversationHandler.END
 
@@ -255,7 +350,7 @@ async def confirm_event(
 
     if save_result.ok:
         await query.edit_message_text(
-            f"✅ {Messages.EVENT_CREATED}",
+            Messages.EVENT_CREATED,
             parse_mode="Markdown",
         )
     else:
@@ -315,13 +410,13 @@ def get_conversation_handler() -> ConversationHandler:
         states={
             WAITING_DESCRIPTION: [
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
+                    filters.TEXT & ~filters.COMMAND & ~MENU_BUTTON_FILTER,
                     receive_description,
                 ),
             ],
             WAITING_DATE: [
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
+                    filters.TEXT & ~filters.COMMAND & ~MENU_BUTTON_FILTER,
                     receive_date,
                 ),
             ],
@@ -348,6 +443,7 @@ def get_conversation_handler() -> ConversationHandler:
         },
         fallbacks=[
             CommandHandler("cancel", cancel_command),
+            MessageHandler(MENU_BUTTON_FILTER, menu_fallback),
             CallbackQueryHandler(cancel_event, pattern=f"^{CallbackData.CANCEL}$"),
         ],
         conversation_timeout=300,

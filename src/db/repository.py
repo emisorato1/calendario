@@ -266,6 +266,9 @@ class Repository:
             invalid = set(closure_data) - self._CLOSURE_UPDATABLE
             if invalid:
                 raise ValueError(f"Campos no permitidos para cierre: {invalid}")
+            # Serializar fotos a JSON string antes del binding SQL
+            if "fotos" in closure_data and isinstance(closure_data["fotos"], list):
+                closure_data["fotos"] = json.dumps(closure_data["fotos"])
             sets = ", ".join(f"{k} = ?" for k in closure_data)
             values = list(closure_data.values()) + [evento_id]
             cursor = await self._db.execute(

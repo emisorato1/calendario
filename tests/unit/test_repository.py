@@ -187,6 +187,22 @@ class TestEventoCRUD:
         evento = await repo.get_evento_by_id(evento_id)
         assert evento.estado == EstadoEvento.COMPLETADO
 
+    async def test_complete_evento_with_fotos_list(self, repo, sample_evento):
+        """complete_evento serializa fotos list a JSON string."""
+        await self._create_client(repo)
+        evento_id = await repo.create_evento(sample_evento)
+        fotos = ["https://example.com/foto1.jpg", "https://example.com/foto2.jpg"]
+        completed = await repo.complete_evento(
+            evento_id,
+            trabajo_realizado="Instalación OK",
+            fotos=fotos,
+        )
+        assert completed is True
+
+        evento = await repo.get_evento_by_id(evento_id)
+        assert evento.estado == EstadoEvento.COMPLETADO
+        assert evento.fotos == fotos  # Pydantic deserializa JSON string a list
+
     async def test_delete_evento(self, repo, sample_evento):
         """Eliminar un evento."""
         await self._create_client(repo)

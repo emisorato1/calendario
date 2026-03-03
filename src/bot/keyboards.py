@@ -3,10 +3,26 @@
 
 from typing import Optional
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 
 from src.bot.constants import CallbackData, ITEMS_PER_PAGE, get_service_emoji
 from src.db.models import Cliente, Evento
+
+
+def build_persistent_menu() -> ReplyKeyboardMarkup:
+    """Construye el teclado persistente con el botón de Menú.
+
+    Este teclado se muestra siempre en la parte inferior del chat,
+    permitiendo al usuario acceder al menú sin necesidad de /start.
+
+    Returns:
+        ReplyKeyboardMarkup con el botón "📋 Menú".
+    """
+    return ReplyKeyboardMarkup(
+        [["📋 Menú"]],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
 
 
 def build_main_menu(role: str) -> InlineKeyboardMarkup:
@@ -95,20 +111,48 @@ def build_main_menu(role: str) -> InlineKeyboardMarkup:
 def build_event_list_keyboard(
     events: list[Evento],
     action: str = "event",
+    clientes: dict[int, Cliente] | None = None,
 ) -> InlineKeyboardMarkup:
     """Construye un teclado con una lista de eventos seleccionables.
+
+    Cuando se proporciona el diccionario de clientes, el label muestra
+    fecha, hora, nombre del cliente y dirección. Sin clientes, usa el
+    formato fallback ``Evento #N``.
 
     Args:
         events: Lista de eventos a mostrar.
         action: Prefijo de acción para el callback_data.
+        clientes: Diccionario ``{cliente_id: Cliente}`` opcional para
+            enriquecer los labels con nombre y dirección.
 
     Returns:
         InlineKeyboardMarkup con botones de selección.
     """
+    # Límite de Telegram para texto de botones inline
+    _MAX_BUTTON_LEN = 64
+
     buttons: list[list[InlineKeyboardButton]] = []
     for event in events:
         emoji = get_service_emoji(event.tipo_servicio)
-        label = f"{emoji} {event.hora_formateada} — Evento #{event.id}"
+
+        if clientes and event.cliente_id in clientes:
+            cliente = clientes[event.cliente_id]
+            fecha = event.fecha_hora.strftime("%d/%m")
+            hora = event.hora_formateada
+            nombre = cliente.nombre or ""
+            direccion = cliente.direccion or ""
+
+            if direccion:
+                label = f"{emoji} {fecha} {hora} — {nombre}, {direccion}"
+            else:
+                label = f"{emoji} {fecha} {hora} — {nombre}"
+
+            # Truncar si excede el límite de Telegram
+            if len(label) > _MAX_BUTTON_LEN:
+                label = label[: _MAX_BUTTON_LEN - 1] + "…"
+        else:
+            label = f"{emoji} {event.hora_formateada} — Evento #{event.id}"
+
         buttons.append(
             [
                 InlineKeyboardButton(

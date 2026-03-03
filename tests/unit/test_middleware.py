@@ -9,6 +9,8 @@ from src.bot.constants import Messages
 from src.bot.middleware import get_user_role, require_authorized, require_role
 from src.db.models import Rol
 
+from telegram.ext import ConversationHandler
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -112,7 +114,7 @@ class TestRequireRole:
         update = _mock_update(user_id=200)
         context = _mock_context()
         result = await handler(update, context)
-        assert result is None  # El handler no se ejecutó
+        assert result == ConversationHandler.END  # El handler no se ejecutó
         update.message.reply_text.assert_called_once()
 
     @pytest.mark.asyncio
@@ -143,7 +145,7 @@ class TestRequireRole:
         update = _mock_update(user_id=999)
         context = _mock_context()
         result = await handler(update, context)
-        assert result is None
+        assert result == ConversationHandler.END
 
     @pytest.mark.asyncio
     @patch("src.bot.middleware.get_settings")
@@ -190,7 +192,7 @@ class TestRequireRole:
         update.effective_user = None
         context = _mock_context()
         result = await handler(update, context)
-        assert result is None
+        assert result == ConversationHandler.END
 
 
 # ── require_authorized ────────────────────────────────────────────────────────
@@ -242,7 +244,7 @@ class TestRequireAuthorized:
         update = _mock_update(user_id=999)
         context = _mock_context()
         result = await handler(update, context)
-        assert result is None
+        assert result == ConversationHandler.END
 
     @pytest.mark.asyncio
     @patch("src.bot.middleware.get_settings")
@@ -274,4 +276,4 @@ class TestRequireAuthorized:
         update.effective_user = None
         context = _mock_context()
         result = await handler(update, context)
-        assert result is None
+        assert result == ConversationHandler.END

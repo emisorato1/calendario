@@ -17,6 +17,8 @@ from src.bot.constants import CallbackData, Messages, States
 from src.bot.formatters import format_event_detail
 from src.bot.keyboards import build_confirmation_keyboard, build_event_list_keyboard
 from src.bot.middleware import require_role
+from src.bot.handlers.start import MENU_BUTTON_FILTER, menu_fallback
+from src.db.models import Cliente
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +42,12 @@ async def start_eliminar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.edit_message_text(Messages.NO_PENDING_EVENTS)
         return ConversationHandler.END
 
-    keyboard = build_event_list_keyboard(eventos, action="eliminar")
+    clientes_dict = await _build_clientes_dict(orchestrator, eventos)
+    keyboard = build_event_list_keyboard(
+        eventos,
+        action="eliminar",
+        clientes=clientes_dict,
+    )
     await query.edit_message_text(
         Messages.SELECT_EVENT_DELETE,
         reply_markup=keyboard,
@@ -48,6 +55,7 @@ async def start_eliminar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return WAITING_SELECT
 
 
+@require_role("admin")
 async def select_evento(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -55,6 +63,9 @@ async def select_evento(
     """El usuario seleccionó un evento para eliminar."""
     query = update.callback_query
     await query.answer()
+
+    # Guardar chat_id (puede ser entry point directo desde natural.py)
+    context.user_data["chat_id"] = update.effective_chat.id
 
     evento_id = int(query.data.replace("eliminar_", ""))
     orchestrator = context.bot_data["orchestrator"]
@@ -92,7 +103,7 @@ async def confirm_delete(
     result = await orchestrator.delete_event(evento_id)
 
     if result.ok:
-        await query.edit_message_text(f"✅ {Messages.EVENT_DELETED}")
+        await query.edit_message_text(Messages.EVENT_DELETED)
     else:
         await query.edit_message_text(f"❌ {result.message}")
 
@@ -137,6 +148,19 @@ async def timeout_handler(
     return ConversationHandler.END
 
 
+async def _build_clientes_dict(orchestrator, eventos) -> dict[int, Cliente]:
+    """Construye un diccionario id->Cliente para los eventos dados."""
+    clientes_dict: dict[int, Cliente] = {}
+    seen_ids: set[int] = set()
+    for ev in eventos:
+        if ev.cliente_id not in seen_ids:
+            seen_ids.add(ev.cliente_id)
+            cliente = await orchestrator.repo.get_cliente_by_id(ev.cliente_id)
+            if cliente:
+                clientes_dict[ev.cliente_id] = cliente
+    return clientes_dict
+
+
 def get_conversation_handler() -> ConversationHandler:
     """Retorna el ConversationHandler para eliminar eventos."""
     return ConversationHandler(
@@ -145,6 +169,9 @@ def get_conversation_handler() -> ConversationHandler:
                 start_eliminar,
                 pattern=f"^{CallbackData.ELIMINAR_EVENTO}$",
             ),
+            # Entry point directo: cuando natural.py muestra la lista de eventos
+            # y el usuario presiona un botón eliminar_{id}
+            CallbackQueryHandler(select_evento, pattern=r"^eliminar_\d+$"),
         ],
         states={
             WAITING_SELECT: [
@@ -167,6 +194,7 @@ def get_conversation_handler() -> ConversationHandler:
         },
         fallbacks=[
             CommandHandler("cancel", cancel_command),
+            MessageHandler(MENU_BUTTON_FILTER, menu_fallback),
             CallbackQueryHandler(cancel_delete, pattern=f"^{CallbackData.CANCEL}$"),
         ],
         conversation_timeout=300,

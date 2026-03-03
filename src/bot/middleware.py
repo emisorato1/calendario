@@ -6,7 +6,7 @@ import logging
 from typing import Callable
 
 from telegram import Update
-from telegram.ext import ContextTypes
+from telegram.ext import ConversationHandler, ContextTypes
 
 from src.bot.constants import Messages
 from src.config import get_settings
@@ -37,6 +37,10 @@ def get_user_role(telegram_id: int) -> str | None:
 def require_role(*roles: str) -> Callable:
     """Decorador que verifica que el usuario tenga uno de los roles especificados.
 
+    Cuando se usa sobre entry points de ConversationHandler, retorna
+    ConversationHandler.END en vez de None para no dejar la conversación
+    en estado roto.
+
     Uso:
         @require_role("admin")
         async def handler(update, context): ...
@@ -62,7 +66,7 @@ def require_role(*roles: str) -> Callable:
             user_id = update.effective_user.id if update.effective_user else None
             if user_id is None:
                 logger.warning("Update sin effective_user, denegando acceso")
-                return
+                return ConversationHandler.END
 
             user_role = get_user_role(user_id)
 
@@ -72,7 +76,7 @@ def require_role(*roles: str) -> Callable:
                     user_id,
                 )
                 await _send_denied_message(update, Messages.NOT_AUTHORIZED)
-                return
+                return ConversationHandler.END
 
             if user_role not in roles:
                 logger.warning(
@@ -82,7 +86,7 @@ def require_role(*roles: str) -> Callable:
                     roles,
                 )
                 await _send_denied_message(update, Messages.PERMISSION_DENIED)
-                return
+                return ConversationHandler.END
 
             return await func(update, context, *args, **kwargs)
 
@@ -96,6 +100,9 @@ def require_authorized(func: Callable) -> Callable:
 
     Equivale a @require_role("admin", "editor") pero con sintaxis más limpia
     para handlers que no necesitan rol específico.
+
+    Retorna ConversationHandler.END al denegar acceso para compatibilidad
+    con ConversationHandlers (aunque normalmente se usa en handlers simples).
 
     Uso:
         @require_authorized
@@ -118,7 +125,7 @@ def require_authorized(func: Callable) -> Callable:
         user_id = update.effective_user.id if update.effective_user else None
         if user_id is None:
             logger.warning("Update sin effective_user, denegando acceso")
-            return
+            return ConversationHandler.END
 
         user_role = get_user_role(user_id)
 
@@ -128,7 +135,7 @@ def require_authorized(func: Callable) -> Callable:
                 user_id,
             )
             await _send_denied_message(update, Messages.NOT_AUTHORIZED)
-            return
+            return ConversationHandler.END
 
         return await func(update, context, *args, **kwargs)
 

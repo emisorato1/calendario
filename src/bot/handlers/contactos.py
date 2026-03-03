@@ -23,6 +23,7 @@ from src.bot.keyboards import (
     paginate_items,
 )
 from src.bot.middleware import require_authorized, require_role
+from src.bot.handlers.start import MENU_BUTTON_FILTER, menu_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +137,7 @@ async def start_editar_contacto(
     return WAITING_SELECT
 
 
+@require_role("admin")
 async def select_contacto(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -143,6 +145,9 @@ async def select_contacto(
     """El usuario seleccionó un contacto para editar."""
     query = update.callback_query
     await query.answer()
+
+    # Guardar chat_id (puede ser entry point directo desde natural.py)
+    context.user_data["chat_id"] = update.effective_chat.id
 
     contact_id = int(query.data.replace(CallbackData.CONTACT_PREFIX, ""))
     orchestrator = context.bot_data["orchestrator"]
@@ -229,7 +234,7 @@ async def confirm_edit(
     )
 
     if success:
-        await query.edit_message_text(f"✅ {Messages.CONTACT_UPDATED}")
+        await query.edit_message_text(Messages.CONTACT_UPDATED)
     else:
         await query.edit_message_text("❌ No se pudo actualizar el contacto.")
 
@@ -300,6 +305,12 @@ def get_editar_contacto_handler() -> ConversationHandler:
                 start_editar_contacto,
                 pattern=f"^{CallbackData.EDITAR_CONTACTO}$",
             ),
+            # Entry point directo: cuando natural.py muestra la lista de contactos
+            # y el usuario presiona un botón contact_{id}
+            CallbackQueryHandler(
+                select_contacto,
+                pattern=f"^{CallbackData.CONTACT_PREFIX}\\d+$",
+            ),
         ],
         states={
             WAITING_SELECT: [
@@ -316,7 +327,7 @@ def get_editar_contacto_handler() -> ConversationHandler:
             ],
             WAITING_VALUE: [
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
+                    filters.TEXT & ~filters.COMMAND & ~MENU_BUTTON_FILTER,
                     receive_value,
                 ),
             ],
@@ -337,6 +348,7 @@ def get_editar_contacto_handler() -> ConversationHandler:
         },
         fallbacks=[
             CommandHandler("cancel", cancel_command),
+            MessageHandler(MENU_BUTTON_FILTER, menu_fallback),
             CallbackQueryHandler(cancel_edit, pattern=f"^{CallbackData.CANCEL}$"),
         ],
         conversation_timeout=300,

@@ -51,16 +51,47 @@ class ParsedEvent(BaseModel):
             return TipoServicio.OTRO
         return v
 
+    @field_validator("hora", mode="after")
+    @classmethod
+    def strip_hora_tzinfo(cls, v: time | None) -> time | None:
+        """Remueve tzinfo de la hora para evitar comparaciones naive vs aware.
+
+        El LLM puede devolver horas con offset (ej: "16:00:00-03:00")
+        que Pydantic parsea con tzinfo.  Todo el sistema opera en
+        America/Argentina/Buenos_Aires sin tz-awareness explícita.
+        """
+        if v is not None and v.tzinfo is not None:
+            return v.replace(tzinfo=None)
+        return v
+
+    # Campos que realmente bloquean la creación del evento
+    _REQUIRED_FIELD_NAMES: frozenset[str] = frozenset(
+        {"cliente_nombre", "fecha", "hora"}
+    )
+
     @property
     def needs_clarification(self) -> bool:
-        """True si faltan campos o la confianza es baja."""
-        return len(self.missing_fields) > 0 or self.confidence < 0.6
+        """True si faltan campos requeridos o la confianza es baja.
+
+        Solo campos requeridos (cliente_nombre, fecha, hora) disparan
+        clarificación.  Campos opcionales como 'telefono' o 'direccion'
+        en missing_fields se ignoran.
+        """
+        required_missing = [
+            f for f in self.missing_fields if f in self._REQUIRED_FIELD_NAMES
+        ]
+        return len(required_missing) > 0 or self.confidence < 0.6
 
     @property
     def is_complete(self) -> bool:
-        """True si tiene todos los datos necesarios para crear el evento."""
+        """True si tiene todos los datos necesarios para crear el evento.
+
+        Verifica que cliente_nombre, fecha y hora estén presentes y que
+        la confianza sea suficiente (>= 0.6).  No depende de
+        needs_clarification para evitar lógica circular.
+        """
         required = [self.cliente_nombre, self.fecha, self.hora]
-        return all(f is not None for f in required) and not self.needs_clarification
+        return all(f is not None for f in required) and self.confidence >= 0.6
 
     @property
     def has_date_but_no_time(self) -> bool:

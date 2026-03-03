@@ -183,6 +183,99 @@ class TestFormatEventConfirmation:
         result = format_event_confirmation(data)
         assert "Av. Corrientes 1234" in result
 
+    def test_structured_dict_from_orchestrator(self):
+        """Soporta el dict estructurado {evento, cliente, parsed} del orchestrator."""
+        evento = _make_evento(tipo=TipoServicio.INSTALACION, dia=3, hora=15)
+        cliente = _make_cliente(
+            nombre="Juan Pérez",
+            telefono="2604264937",
+            direccion="Balcarce 1783",
+        )
+        data = {"evento": evento, "cliente": cliente, "parsed": None}
+        result = format_event_confirmation(data)
+        assert "Instalacion" in result
+        assert "Juan Pérez" in result
+        assert "2604264937" in result
+        assert "Balcarce 1783" in result
+        assert "03/03/2026" in result
+        assert "15:00" in result
+
+    def test_structured_dict_with_parsed_direccion(self):
+        """Si el cliente no tiene dirección, la toma del parsed."""
+        from src.llm.schemas import ParsedEvent
+
+        evento = _make_evento(tipo=TipoServicio.REVISION, dia=5, hora=10)
+        cliente = _make_cliente(nombre="Ana", telefono=None, direccion=None)
+        parsed = ParsedEvent(
+            cliente_nombre="Ana",
+            cliente_telefono="351999888",
+            direccion="San Martín 456",
+        )
+        data = {"evento": evento, "cliente": cliente, "parsed": parsed}
+        result = format_event_confirmation(data)
+        assert "San Martín 456" in result
+        assert "351999888" in result
+
+    def test_phone_match_warning_when_names_differ(self):
+        """Muestra advertencia cuando el cliente resuelto difiere del parseado."""
+        from src.llm.schemas import ParsedEvent
+
+        evento = _make_evento(tipo=TipoServicio.INSTALACION, dia=10, hora=9)
+        # El teléfono pertenece a Juan Pérez en la DB
+        cliente = _make_cliente(
+            nombre="Juan Pérez", telefono="2604264937", direccion="Calle 1"
+        )
+        # Pero el usuario dijo "Emiliano Sorato"
+        parsed = ParsedEvent(
+            cliente_nombre="Emiliano Sorato",
+            cliente_telefono="2604264937",
+        )
+        data = {"evento": evento, "cliente": cliente, "parsed": parsed}
+        result = format_event_confirmation(data)
+        assert "⚠️" in result
+        assert "Juan Pérez" in result
+        assert "Emiliano Sorato" in result
+        assert "teléfono ya pertenece" in result
+
+    def test_no_warning_when_names_match(self):
+        """No muestra advertencia cuando los nombres coinciden."""
+        from src.llm.schemas import ParsedEvent
+
+        evento = _make_evento(tipo=TipoServicio.INSTALACION, dia=10, hora=9)
+        cliente = _make_cliente(
+            nombre="Juan Pérez", telefono="2604264937", direccion="Calle 1"
+        )
+        parsed = ParsedEvent(
+            cliente_nombre="Juan Pérez",
+            cliente_telefono="2604264937",
+        )
+        data = {"evento": evento, "cliente": cliente, "parsed": parsed}
+        result = format_event_confirmation(data)
+        assert "⚠️" not in result
+        assert "teléfono ya pertenece" not in result
+
+    def test_no_warning_when_names_match_case_insensitive(self):
+        """No muestra advertencia cuando los nombres coinciden (case-insensitive)."""
+        from src.llm.schemas import ParsedEvent
+
+        evento = _make_evento(tipo=TipoServicio.REVISION, dia=10, hora=9)
+        cliente = _make_cliente(nombre="Ana García", telefono="351111222")
+        parsed = ParsedEvent(
+            cliente_nombre="ana garcía",
+            cliente_telefono="351111222",
+        )
+        data = {"evento": evento, "cliente": cliente, "parsed": parsed}
+        result = format_event_confirmation(data)
+        assert "⚠️" not in result
+
+    def test_no_warning_when_no_parsed(self):
+        """No muestra advertencia cuando parsed es None."""
+        evento = _make_evento(tipo=TipoServicio.INSTALACION, dia=10, hora=9)
+        cliente = _make_cliente(nombre="Juan Pérez", telefono="2604264937")
+        data = {"evento": evento, "cliente": cliente, "parsed": None}
+        result = format_event_confirmation(data)
+        assert "⚠️" not in result
+
 
 # ── format_event_detail ───────────────────────────────────────────────────────
 

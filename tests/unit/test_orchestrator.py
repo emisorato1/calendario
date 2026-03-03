@@ -638,21 +638,17 @@ class TestHandleNaturalMessage:
         assert result.data["action"] == "ver_eventos"
         assert len(result.data["eventos"]) == 1
 
-    async def test_crear_evento_delega_a_create(self, orchestrator, mock_parser):
-        """Intent CREAR_EVENTO delega a create_event_from_text."""
+    async def test_crear_evento_retorna_action(self, orchestrator, mock_parser):
+        """Intent CREAR_EVENTO retorna action para que el bot inicie el flujo."""
         mock_parser.detect_intent.return_value = IntentDetection(
             intent=Intent.CREAR_EVENTO,
             confidence=1.0,
         )
-        # parse_create_event se llama internamente por create_event_from_text
-        mock_parser.parse_create_event.return_value = ParsedEvent(
-            cliente_nombre="Juan",
-            fecha=None,
-        )
 
         result = await orchestrator.handle_natural_message("turno para Juan", 123)
-        # Sin fecha → pide fecha
-        assert result.status == ResultStatus.NEEDS_INPUT
+        assert result.ok
+        assert result.data["action"] == "crear_evento"
+        assert result.data["original_text"] == "turno para Juan"
 
     async def test_eliminar_delega(self, orchestrator, mock_parser):
         """Intent ELIMINAR_EVENTO lista eventos para seleccionar."""

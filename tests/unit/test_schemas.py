@@ -86,6 +86,19 @@ class TestParsedEvent:
         event = ParsedEvent(tipo_servicio=None)
         assert event.tipo_servicio == TipoServicio.OTRO
 
+    def test_hora_strips_tzinfo(self):
+        """hora con tzinfo se convierte a naive para evitar errores de comparación."""
+        event = ParsedEvent(hora="16:00:00+00:00")
+        assert event.hora is not None
+        assert event.hora.tzinfo is None
+        assert event.hora == time(16, 0)
+
+    def test_hora_naive_unchanged(self):
+        """hora sin tzinfo se mantiene sin cambios."""
+        event = ParsedEvent(hora="16:00")
+        assert event.hora == time(16, 0)
+        assert event.hora.tzinfo is None
+
     def test_tipo_servicio_from_string(self):
         """tipo_servicio acepta strings."""
         event = ParsedEvent(tipo_servicio="instalacion")
@@ -131,6 +144,28 @@ class TestParsedEvent:
         event = ParsedEvent(confidence=0.9, missing_fields=[])
         assert event.needs_clarification is False
 
+    def test_needs_clarification_ignores_optional_fields(self):
+        """needs_clarification es False si solo faltan campos opcionales."""
+        event = ParsedEvent(
+            confidence=0.9,
+            missing_fields=["telefono", "direccion", "notas"],
+        )
+        assert event.needs_clarification is False
+
+    def test_needs_clarification_required_field_missing(self):
+        """needs_clarification es True si falta un campo requerido."""
+        for field in ("cliente_nombre", "fecha", "hora"):
+            event = ParsedEvent(confidence=0.9, missing_fields=[field])
+            assert event.needs_clarification is True, f"Debería ser True para {field}"
+
+    def test_needs_clarification_mixed_fields(self):
+        """needs_clarification es True si hay mezcla con al menos un requerido."""
+        event = ParsedEvent(
+            confidence=0.9,
+            missing_fields=["telefono", "fecha"],
+        )
+        assert event.needs_clarification is True
+
     def test_is_complete_true(self):
         """is_complete es True con todos los datos obligatorios."""
         event = ParsedEvent(
@@ -168,14 +203,24 @@ class TestParsedEvent:
         )
         assert event.is_complete is False
 
-    def test_is_complete_false_with_missing_fields(self):
-        """is_complete es False si hay missing_fields aunque tenga los datos."""
+    def test_is_complete_true_with_optional_missing_fields(self):
+        """is_complete es True aunque missing_fields tenga campos opcionales."""
         event = ParsedEvent(
             cliente_nombre="Juan",
             fecha=date(2026, 3, 15),
             hora=time(10, 0),
-            missing_fields=["direccion"],
+            missing_fields=["direccion", "telefono"],
             confidence=0.9,
+        )
+        assert event.is_complete is True
+
+    def test_is_complete_false_low_confidence(self):
+        """is_complete es False si confidence < 0.6 aunque tenga los datos."""
+        event = ParsedEvent(
+            cliente_nombre="Juan",
+            fecha=date(2026, 3, 15),
+            hora=time(10, 0),
+            confidence=0.5,
         )
         assert event.is_complete is False
 

@@ -550,7 +550,16 @@ class Orchestrator:
 
             match intent:
                 case Intent.CREAR_EVENTO:
-                    return await self.create_event_from_text(text, user_id)
+                    # No procesamos la creación aquí — retornamos la acción
+                    # para que el handler de natural redirija al ConversationHandler
+                    # de crear_evento (que maneja estados, clarificaciones, etc.)
+                    return Result.success(
+                        data={
+                            "action": "crear_evento",
+                            "original_text": text,
+                        },
+                        message="Entendí que querés crear un evento.",
+                    )
 
                 case Intent.VER_EVENTOS:
                     eventos = await self.list_pending_events()

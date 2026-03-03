@@ -4,7 +4,7 @@ y punto de entrada para polling."""
 
 import logging
 
-from telegram.ext import Application, ApplicationBuilder, ContextTypes
+from telegram.ext import Application, ApplicationBuilder, ContextTypes, MessageHandler
 
 from src.bot.handlers import (
     contactos,
@@ -16,6 +16,7 @@ from src.bot.handlers import (
     terminar_evento,
     ver_eventos,
 )
+from src.bot.handlers.start import MENU_BUTTON_FILTER, menu_text_handler
 from src.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -99,7 +100,12 @@ def _register_handlers(app: Application) -> None:
     for handler in contactos.get_ver_contactos_handlers():
         app.add_handler(handler)
 
-    # 4. Handler de texto natural — SIEMPRE ÚLTIMO
+    # 4. Botón persistente "📋 Menú" — DESPUÉS de ConversationHandlers
+    #    para que los fallbacks de las conversaciones tengan prioridad
+    #    y cierren la conversación activa antes de mostrar el menú.
+    app.add_handler(MessageHandler(MENU_BUTTON_FILTER, menu_text_handler))
+
+    # 5. Handler de texto natural — SIEMPRE ÚLTIMO
     app.add_handler(natural.get_natural_handler())
 
     logger.info("Handlers registrados: %d en total", len(app.handlers.get(0, [])))

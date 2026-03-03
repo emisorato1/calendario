@@ -39,10 +39,13 @@ def _make_evento(id_: int = 1, hora: int = 10) -> Evento:
 
 
 def _make_cliente(
-    id_: int = 1, nombre: str = "Juan Pérez", telefono: str | None = "+5491155551234"
+    id_: int = 1,
+    nombre: str = "Juan Pérez",
+    telefono: str | None = "+5491155551234",
+    direccion: str | None = None,
 ) -> Cliente:
     """Crea un Cliente de prueba."""
-    return Cliente(id=id_, nombre=nombre, telefono=telefono)
+    return Cliente(id=id_, nombre=nombre, telefono=telefono, direccion=direccion)
 
 
 # ── build_main_menu ───────────────────────────────────────────────────────────
@@ -141,6 +144,75 @@ class TestBuildEventListKeyboard:
         keyboard = build_event_list_keyboard([evento], action="editar")
         btn = keyboard.inline_keyboard[0][0]
         assert "🔵" in btn.text
+
+    def test_with_clientes_shows_nombre_and_direccion(self):
+        """Con dict de clientes, el label muestra fecha, hora, nombre y dirección."""
+        evento = _make_evento(id_=1, hora=16)
+        cliente = _make_cliente(id_=1, nombre="Ana García", direccion="Balcarce 1783")
+        clientes = {1: cliente}
+        keyboard = build_event_list_keyboard(
+            [evento],
+            action="editar",
+            clientes=clientes,
+        )
+        btn = keyboard.inline_keyboard[0][0]
+        assert "15/03" in btn.text  # fecha dd/mm
+        assert "16:00" in btn.text
+        assert "Ana García" in btn.text
+        assert "Balcarce 1783" in btn.text
+
+    def test_with_clientes_no_direccion(self):
+        """Con dict de clientes sin dirección, el label omite la dirección."""
+        evento = _make_evento(id_=1, hora=10)
+        cliente = _make_cliente(id_=1, nombre="Pedro López", direccion=None)
+        clientes = {1: cliente}
+        keyboard = build_event_list_keyboard(
+            [evento],
+            action="terminar",
+            clientes=clientes,
+        )
+        btn = keyboard.inline_keyboard[0][0]
+        assert "Pedro López" in btn.text
+        assert "," not in btn.text  # sin coma porque no hay dirección
+
+    def test_without_clientes_shows_fallback(self):
+        """Sin dict de clientes, el label usa el formato fallback 'Evento #N'."""
+        evento = _make_evento(id_=5, hora=14)
+        keyboard = build_event_list_keyboard([evento], action="eliminar")
+        btn = keyboard.inline_keyboard[0][0]
+        assert "Evento #5" in btn.text
+
+    def test_label_truncated_at_64_chars(self):
+        """Labels que exceden 64 caracteres se truncan con '…'."""
+        evento = _make_evento(id_=1, hora=10)
+        nombre_largo = "María Fernanda González de los Santos"
+        direccion_larga = "Av. Libertador General San Martín 12345, Piso 8 Depto B"
+        cliente = _make_cliente(
+            id_=1,
+            nombre=nombre_largo,
+            direccion=direccion_larga,
+        )
+        clientes = {1: cliente}
+        keyboard = build_event_list_keyboard(
+            [evento],
+            action="editar",
+            clientes=clientes,
+        )
+        btn = keyboard.inline_keyboard[0][0]
+        assert len(btn.text) <= 64
+        assert btn.text.endswith("…")
+
+    def test_clientes_missing_cliente_id_uses_fallback(self):
+        """Si el cliente_id del evento no está en el dict, usa fallback."""
+        evento = _make_evento(id_=3, hora=9)  # cliente_id=1
+        clientes = {99: _make_cliente(id_=99, nombre="Otro")}
+        keyboard = build_event_list_keyboard(
+            [evento],
+            action="editar",
+            clientes=clientes,
+        )
+        btn = keyboard.inline_keyboard[0][0]
+        assert "Evento #3" in btn.text
 
 
 # ── build_contact_list_keyboard ───────────────────────────────────────────────

@@ -52,10 +52,73 @@ def format_events_list(
             cliente_name = _get_cliente_name(ev, clientes)
             lines.append(f"{emoji} {ev.hora_formateada} — *{cliente_name}*")
             tipo_display = ev.tipo_servicio.value.capitalize()
-            lines.append(f"   {tipo_display}")
+            # Agregar dirección si está disponible
+            direccion = _get_cliente_direccion(ev, clientes)
+            if direccion:
+                lines.append(f"   {tipo_display} · {direccion}")
+            else:
+                lines.append(f"   {tipo_display}")
         lines.append("")
 
     return "\n".join(lines).rstrip()
+
+
+def _flatten_event_data(event_data: dict) -> dict:
+    """Aplana un dict estructurado del orchestrator a un dict plano.
+
+    Si event_data tiene las claves 'evento', 'cliente' y/o 'parsed',
+    extrae los campos relevantes y los devuelve en un dict plano que
+    format_event_confirmation puede consumir.  Si ya es un dict plano,
+    lo devuelve sin cambios.
+
+    Args:
+        event_data: Dict plano o estructurado del orchestrator.
+
+    Returns:
+        Dict plano con claves: tipo_servicio, cliente_nombre, telefono,
+        direccion, fecha, hora, fecha_formateada, hora_formateada, notas.
+    """
+    # Si no tiene la clave 'evento', asumir que ya es plano
+    if "evento" not in event_data:
+        return event_data
+
+    flat: dict = {}
+    evento = event_data.get("evento")
+    cliente = event_data.get("cliente")
+    parsed = event_data.get("parsed")
+
+    # Datos del Evento model
+    if evento is not None:
+        flat["tipo_servicio"] = getattr(evento, "tipo_servicio", None)
+        flat["notas"] = getattr(evento, "notas", None)
+        fecha_hora = getattr(evento, "fecha_hora", None)
+        if fecha_hora is not None:
+            flat["fecha_formateada"] = fecha_hora.strftime("%d/%m/%Y")
+            flat["hora_formateada"] = fecha_hora.strftime("%H:%M")
+            flat["fecha"] = fecha_hora.date()
+            flat["hora"] = fecha_hora.time()
+        duracion = getattr(evento, "duracion_minutos", None)
+        if duracion is not None:
+            flat["duracion_minutos"] = duracion
+
+    # Datos del Cliente model
+    if cliente is not None:
+        flat["cliente_nombre"] = getattr(cliente, "nombre", None)
+        flat["telefono"] = getattr(cliente, "telefono", None)
+        flat["direccion"] = getattr(cliente, "direccion", None)
+
+    # Datos del ParsedEvent (complementar si el cliente no tiene dirección)
+    if parsed is not None:
+        if not flat.get("direccion"):
+            flat["direccion"] = getattr(parsed, "direccion", None)
+        if not flat.get("telefono"):
+            flat["cliente_telefono"] = getattr(parsed, "cliente_telefono", None)
+        # Guardar nombre parseado para detectar discrepancias con el resuelto
+        parsed_nombre = getattr(parsed, "cliente_nombre", None)
+        if parsed_nombre:
+            flat["_parsed_cliente_nombre"] = parsed_nombre
+
+    return flat
 
 
 def format_event_confirmation(event_data: dict) -> str:
@@ -63,31 +126,51 @@ def format_event_confirmation(event_data: dict) -> str:
 
     REGLA: El tipo de servicio SIEMPRE debe mostrarse. Nunca "Sin tipo".
 
+    Soporta dos formatos de entrada:
+    - Dict plano: {"tipo_servicio": "instalacion", "cliente_nombre": "Juan", ...}
+    - Dict estructurado del orchestrator: {"evento": Evento, "cliente": Cliente, "parsed": ParsedEvent}
+
     Args:
         event_data: Diccionario con datos del evento (del orquestador).
 
     Returns:
         Texto formateado en Markdown con resumen del evento.
     """
+    # Si viene del orchestrator con objetos anidados, aplanar primero
+    flat = _flatten_event_data(event_data)
+
     # Extraer datos — soporta tanto dict plano como objetos
-    tipo = _extract_field(event_data, "tipo_servicio", "otro")
+    tipo = _extract_field(flat, "tipo_servicio", "otro")
     # Garantizar que nunca sea "Sin tipo"
     if not tipo or tipo == "null":
         tipo = "otro"
     tipo_display = tipo.capitalize() if isinstance(tipo, str) else tipo
 
-    cliente = _extract_field(event_data, "cliente_nombre", "Sin nombre")
-    telefono = _extract_field(event_data, "telefono", "No especificado")
-    if not telefono:
-        telefono = _extract_field(event_data, "cliente_telefono", "No especificado")
-    direccion = _extract_field(event_data, "direccion", "No especificada")
-    fecha = _extract_field(event_data, "fecha_formateada", "")
+    cliente = _extract_field(flat, "cliente_nombre", "Sin nombre")
+    # Detectar si el cliente resuelto difiere del nombre que dijo el usuario
+    parsed_nombre = flat.get("_parsed_cliente_nombre")
+    client_warning = ""
+    if (
+        parsed_nombre
+        and cliente != "Sin nombre"
+        and parsed_nombre.lower().strip() != cliente.lower().strip()
+    ):
+        client_warning = (
+            f"\n\n"
+            f"⚠️ El teléfono ya pertenece a *{cliente}*. "
+            f'Se usará ese cliente en lugar de "{parsed_nombre}".'
+        )
+    telefono = _extract_field(flat, "telefono", "No especificado")
+    if not telefono or telefono == "No especificado":
+        telefono = _extract_field(flat, "cliente_telefono", "No especificado")
+    direccion = _extract_field(flat, "direccion", "No especificada")
+    fecha = _extract_field(flat, "fecha_formateada", "")
     if not fecha:
-        fecha = _extract_field(event_data, "fecha", "No especificada")
-    hora = _extract_field(event_data, "hora_formateada", "")
+        fecha = _extract_field(flat, "fecha", "No especificada")
+    hora = _extract_field(flat, "hora_formateada", "")
     if not hora:
-        hora = _extract_field(event_data, "hora", "No especificada")
-    notas = _extract_field(event_data, "notas", "Sin notas")
+        hora = _extract_field(flat, "hora", "No especificada")
+    notas = _extract_field(flat, "notas", "Sin notas")
     if not notas:
         notas = "Sin notas"
 
@@ -99,7 +182,8 @@ def format_event_confirmation(event_data: dict) -> str:
         f"📍 Dirección: {direccion}\n"
         f"📅 Fecha: {fecha}\n"
         f"🕐 Hora: {hora}\n"
-        f"📝 Notas: {notas}\n\n"
+        f"📝 Notas: {notas}"
+        f"{client_warning}\n\n"
         f"¿Confirmás la creación del evento?"
     )
 
@@ -310,6 +394,24 @@ def _get_cliente_name(
     if clientes and evento.cliente_id in clientes:
         return clientes[evento.cliente_id].nombre
     return f"Cliente #{evento.cliente_id}"
+
+
+def _get_cliente_direccion(
+    evento: Evento,
+    clientes: Optional[dict[int, Cliente]] = None,
+) -> Optional[str]:
+    """Obtiene la dirección del cliente de un evento.
+
+    Args:
+        evento: Evento con cliente_id.
+        clientes: Diccionario id->Cliente.
+
+    Returns:
+        Dirección del cliente o None si no está disponible.
+    """
+    if clientes and evento.cliente_id in clientes:
+        return clientes[evento.cliente_id].direccion
+    return None
 
 
 def _extract_field(data: dict, field: str, default: str = "") -> str:
